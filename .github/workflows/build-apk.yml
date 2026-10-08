@@ -46,9 +46,8 @@ jobs:
           fi
 
       - name: Build Web Application
-        run: npm run build
-
-      - name: 
+        run: npm run buil
+        
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
