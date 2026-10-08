@@ -48,8 +48,11 @@ jobs:
       - name: Build Web Application
         run: npm run build
 
+      - name: 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
 
       - name: Initialize or Sync Capacitor Android
         run: |
