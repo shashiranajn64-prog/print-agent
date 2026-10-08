@@ -14,7 +14,9 @@ import {
   Cpu,
   QrCode,
   Share2,
-  Send
+  Send,
+  RotateCw,
+  Sparkles
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
@@ -26,7 +28,7 @@ interface ApkBuilderModalProps {
 export const ApkBuilderModal: React.FC<ApkBuilderModalProps> = ({ isOpen, onClose }) => {
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const [copiedScript, setCopiedScript] = useState(false);
-  const [activeTab, setActiveTab] = useState<'pwa' | 'capacitor' | 'cloud' | 'github'>('pwa');
+  const [activeTab, setActiveTab] = useState<'pwa' | 'capacitor' | 'cloud' | 'github' | 'updates'>('pwa');
   const [copiedGithubYml, setCopiedGithubYml] = useState(false);
 
   if (!isOpen) return null;
@@ -38,14 +40,19 @@ export const ApkBuilderModal: React.FC<ApkBuilderModalProps> = ({ isOpen, onClos
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch: # Allows manual trigger from GitHub Actions
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Allows 1-click manual trigger from GitHub Actions tab
 
 jobs:
   build-apk:
     name: Build Android APK
     runs-on: ubuntu-latest
+
     steps:
-      - name: 1. Checkout Code
+      - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
       - name: 2. Setup Node.js 20
@@ -54,39 +61,89 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: 3. Install Dependencies & Build
+      - name: 3. Install NPM Dependencies
         run: |
           npm install
+
+      - name: 4. Build Web Application (Vite)
+        run: |
           npm run build
 
-      - name: 4. Setup Java JDK 17
+      - name: 5. Setup Java JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 5. Setup Android SDK
+      - name: 6. Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: 6. Add & Sync Capacitor Android
+      - name: 7. Configure Capacitor Android & Inject Permissions
         run: |
-          npm install --save-dev @capacitor/core @capacitor/cli @capacitor/android
           if [ ! -d "android" ]; then
             npx cap add android
           fi
           npx cap sync android
 
-      - name: 7. Build Debug APK
+          # Inject Bluetooth & USB thermal printer permissions into AndroidManifest.xml
+          node -e '
+          const fs = require("fs");
+          const file = "android/app/src/main/AndroidManifest.xml";
+          if (fs.existsSync(file)) {
+            let content = fs.readFileSync(file, "utf8");
+            const permissions = \`
+    <!-- Permissions for ESC/POS Thermal Printers, Bluetooth & Network -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+\`;
+            if (!content.includes("android.permission.BLUETOOTH_CONNECT")) {
+              content = content.replace(/<application/i, permissions + "\\n    <application");
+              fs.writeFileSync(file, content, "utf8");
+              console.log("Permissions successfully injected into AndroidManifest.xml");
+            }
+          }
+          '
+
+      - name: 8. Grant Execute Permission for Gradle
+        run: |
+          chmod +x android/gradlew
+
+      - name: 9. Build Debug APK with Gradle
         working-directory: android
         run: |
-          chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
-      - name: 8. Upload APK
+      - name: 10. Prepare Output APK
+        run: |
+          mkdir -p release-apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-apk/ShashiPrintAgent-debug.apk
+
+      - name: 11. Upload APK Artifact (Download from GitHub Summary)
         uses: actions/upload-artifact@v4
         with:
           name: ShashiPrintAgent-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk`;
+          path: release-apk/ShashiPrintAgent-debug.apk
+          retention-days: 30
+
+      - name: 12. Create GitHub Release (Optional on Git Tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-apk/ShashiPrintAgent-debug.apk
+          name: Release \${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}`;
 
   const capacitorCommands = `# 1. Install Capacitor Android packages
 npm install @capacitor/core @capacitor/cli @capacitor/android
@@ -179,6 +236,17 @@ npx cap open android
           >
             <Zap className="w-3.5 h-3.5 text-amber-400" />
             <span>4. GitHub Actions (Auto APK)</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('updates')}
+            className={`pb-2.5 px-3 font-semibold transition border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'updates'
+                ? 'text-emerald-400 border-emerald-400 font-bold'
+                : 'text-slate-400 border-transparent hover:text-slate-200'
+            }`}
+          >
+            <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
+            <span>5. Future Updates (नया वर्जन कैसे मिलेगा)</span>
           </button>
         </div>
 
@@ -418,6 +486,116 @@ npx cap open android
                   <pre className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 font-mono text-[10px] text-amber-300 overflow-x-auto max-h-56 scrollbar-thin">
                     {githubWorkflowYml}
                   </pre>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'updates' && (
+            <div className="space-y-4">
+              <div className="bg-gradient-to-br from-emerald-950/60 via-slate-900 to-sky-950/60 border border-emerald-800/50 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-sm text-white flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                    How Future Updates Reach Shopkeepers (App Update Guide)
+                  </span>
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Auto-Sync v1.0.1
+                  </span>
+                </div>
+
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  Agar aap aaj APK release kar dete hain aur baad me koi bhi naya feature, design ya bug-fix add karte hain, to shopkeeper ko naya version kaise milega? Yahan 4 best mechanisms setup hain:
+                </p>
+
+                {/* 4 Methods */}
+                <div className="space-y-3">
+                  {/* Method 1: PWA / WebAPK Instant OTA */}
+                  <div className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sky-300 text-xs flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-sky-400" />
+                        1. WebAPK / Phone Install (100% Automatic Over-The-Air)
+                      </span>
+                      <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-950/80 px-2 py-0.5 rounded">
+                        No Reinstall Needed
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Jab shopkeeper ne Chrome se &ldquo;Install on Phone&rdquo; kiya hai: Aap jab bhi server/cloud par naya code push karenge, phone me app open hote hi background service worker <strong>automatically naya version fetch kar lega</strong>. Shopkeeper ko dobara APK download karne ki bilkul zaroorat nahi padti!
+                    </p>
+                  </div>
+
+                  {/* Method 2: In-App Version Checker */}
+                  <div className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-300 text-xs flex items-center gap-1.5">
+                        <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
+                        2. In-App Auto-Update Banner &amp; API
+                      </span>
+                      <span className="text-[10px] text-sky-400 font-semibold bg-sky-950/80 px-2 py-0.5 rounded">
+                        API: /api/app-version
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      App open hote hi server se latest version compare karti hai. Naya update aate hi shopkeeper ke screen par <strong>&ldquo;Update to v1.0.2&rdquo;</strong> ka 1-click button dikhai deta hai. Bas ek tap me naya code sync ho jata hai.
+                    </p>
+                  </div>
+
+                  {/* Method 3: Standalone APK Direct Upgrade */}
+                  <div className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-amber-300 text-xs flex items-center gap-1.5">
+                        <Download className="w-3.5 h-3.5 text-amber-400" />
+                        3. Native Standalone APK Update (Zero Data Loss)
+                      </span>
+                      <span className="text-[10px] text-amber-300 font-semibold bg-amber-950/80 px-2 py-0.5 rounded">
+                        Android Upgrade
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Agar shopkeeper ne direct <code>.apk</code> file se install kiya hai:
+                      Aap GitHub Actions se naya APK generate karke shopkeeper ko bhejenge. Shopkeeper naya APK open karke <strong>&ldquo;Update&rdquo;</strong> tap karega.
+                      <strong>Important:</strong> Purani app uninstall nahi karni padti! Shopkeeper ka mobile number, login, settings aur paired Bluetooth printer <strong>100% save</strong> rahenge.
+                    </p>
+                  </div>
+
+                  {/* Method 4: Capacitor Live Server URL */}
+                  <div className="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-purple-300 text-xs flex items-center gap-1.5">
+                        <ExternalLink className="w-3.5 h-3.5 text-purple-400" />
+                        4. Capacitor Live URL Mode (Instant Live OTA)
+                      </span>
+                      <span className="text-[10px] text-purple-300 font-semibold bg-purple-950/80 px-2 py-0.5 rounded">
+                        Live Cloud Sync
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      <code>capacitor.config.json</code> me live server URL set karne se APK hamesha cloud se latest web bundle load karti hai. Iska matlab aap cloud par code push karenge aur APK me turant live change dikhega!
+                    </p>
+                  </div>
+                </div>
+
+                {/* Live Check Button */}
+                <div className="pt-2 flex items-center justify-between bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                  <div>
+                    <span className="font-bold text-white text-xs block">Current Version: v1.0.1</span>
+                    <span className="text-[10px] text-slate-400">Status: Latest stable build running</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      fetch('/api/app-version')
+                        .then(r => r.json())
+                        .then(d => {
+                          alert(`App Version: v${d.latestVersion}\nRelease Date: ${d.releaseDate}\nFeatures: ${d.changelog.join(', ')}`);
+                        });
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs transition"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Test Version API Check</span>
+                  </button>
                 </div>
               </div>
             </div>

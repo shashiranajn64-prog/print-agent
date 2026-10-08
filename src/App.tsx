@@ -15,6 +15,8 @@ import { ShopManagementModal } from './components/ShopManagementModal';
 import { CustomerPortal } from './components/CustomerPortal';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { Footer } from './components/Footer';
+import { InAppUpdateBanner } from './components/InAppUpdateBanner';
+import { FeedbackModal } from './components/FeedbackModal';
 import { PrintJob, PrinterDevice, ShopAccount } from '../server';
 import { 
   playPrinterSoundEffect, 
@@ -34,6 +36,7 @@ export default function App() {
   const [showShopPanelModal, setShowShopPanelModal] = useState<boolean>(false);
   const [shopPanelInitialTab, setShopPanelInitialTab] = useState<'detail' | 'password' | 'upi' | 'rates' | 'customer_qr' | 'printer_bt'>('detail');
   const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'agent' | 'customer'>('agent');
   const [customerShopId, setCustomerShopId] = useState<string>('current');
   const [activePrinterId, setActivePrinterId] = useState<string>('');
@@ -419,7 +422,11 @@ export default function App() {
         onOpenShopPanel={() => handleOpenShopPanelTab('detail')}
         onOpenCustomerPortal={() => handleOpenCustomerPortal(currentShop?.id || 'current')}
         onOpenAdminPanel={() => setShowAdminModal(true)}
+        onOpenFeedback={() => setShowFeedbackModal(true)}
       />
+
+      {/* In-App Live Version & Auto-Update Banner */}
+      <InAppUpdateBanner />
 
       {/* Floating Status Notification Toast */}
       {toastMessage && (
@@ -497,6 +504,7 @@ export default function App() {
         }}
         onOpenAdminPanel={() => setShowAdminModal(true)}
         onOpenApkModal={() => setShowApkModal(true)}
+        onOpenFeedback={() => setShowFeedbackModal(true)}
         onChangeTab={setActiveTab}
       />
 
@@ -583,6 +591,16 @@ export default function App() {
         onShopDeletedOrAdded={() => {
           fetchJobs();
           fetchCurrentShop();
+        }}
+      />
+
+      {/* Real User Feedback Submission Modal */}
+      <FeedbackModal
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        shopName={currentShop?.shopName}
+        onFeedbackSubmitted={() => {
+          showToast('Feedback successfully submitted to Super Admin!', 'success');
         }}
       />
     </div>

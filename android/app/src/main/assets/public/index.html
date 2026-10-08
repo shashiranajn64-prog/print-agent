@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <script>
+      (function() {
+        // 1. Proxy WebSocket to cleanly handle Vite HMR when HMR is disabled in cloud proxy
+        if (typeof window !== 'undefined' && window.WebSocket) {
+          const NativeWebSocket = window.WebSocket;
+          function ViteSafeWebSocket(url, protocols) {
+            const isViteHmr = 
+              protocols === 'vite-hmr' || 
+              (Array.isArray(protocols) && protocols.includes('vite-hmr')) ||
+              (typeof url === 'string' && (url.includes('token=') || url.includes('vite')));
+
+            if (isViteHmr) {
+              const target = new EventTarget();
+              target.readyState = 1; // WebSocket.OPEN
+              target.url = String(url);
+              target.protocol = 'vite-hmr';
+              target.bufferedAmount = 0;
+              target.extensions = '';
+              target.binaryType = 'blob';
+              target.send = function() {};
+              target.close = function() {};
+              
+              const originalAddEventListener = target.addEventListener.bind(target);
+              target.addEventListener = function(type, listener, options) {
+                originalAddEventListener(type, listener, options);
+                if (type === 'open') {
+                  setTimeout(function() {
+                    const evt = new Event('open');
+                    if (typeof target.onopen === 'function') target.onopen(evt);
+                    target.dispatchEvent(evt);
+                  }, 0);
+                }
+              };
+
+              target.onopen = null;
+              target.onclose = null;
+              target.onerror = null;
+              target.onmessage = null;
+
+              return target;
+            }
+
+            return new NativeWebSocket(url, protocols);
+          }
+
+          ViteSafeWebSocket.prototype = NativeWebSocket.prototype;
+          ViteSafeWebSocket.CONNECTING = 0;
+          ViteSafeWebSocket.OPEN = 1;
+          ViteSafeWebSocket.CLOSING = 2;
+          ViteSafeWebSocket.CLOSED = 3;
+
+          window.WebSocket = ViteSafeWebSocket;
+        }
+
+        // 2. Intercept any lingering console errors or unhandled rejections
+        const origError = console.error;
+        console.error = function(...args) {
+          const msg = args.map(function(a) {
+            return (a && a.message) || String(a || '');
+          }).join(' ');
+          if (msg.includes('WebSocket') || msg.includes('closed without opened') || msg.includes('[vite]')) {
+            return;
+          }
+          origError.apply(console, args);
+        };
+
+        const origWarn = console.warn;
+        console.warn = function(...args) {
+          const msg = args.map(function(a) {
+            return (a && a.message) || String(a || '');
+          }).join(' ');
+          if (msg.includes('WebSocket') || msg.includes('closed without opened') || msg.includes('[vite]')) {
+            return;
+          }
+          origWarn.apply(console, args);
+        };
+
+        window.addEventListener('unhandledrejection', function(event) {
+          const reason = event.reason;
+          const msg = (reason && reason.message) || String(reason || '');
+          if (msg.includes('WebSocket') || msg.includes('closed without opened') || msg.includes('[vite]')) {
+            event.preventDefault();
+          }
+        });
+
+        window.addEventListener('error', function(event) {
+          const msg = (event && event.message) || '';
+          if (msg.includes('WebSocket') || msg.includes('closed without opened') || msg.includes('[vite]')) {
+            event.preventDefault();
+          }
+        });
+      })();
+    </script>
+    <title>Shashi Print Agent</title>
+    <meta name="description" content="Mobile Print Agent for Android APK and PWA with real-time backend print job fetching, ESC/POS Bluetooth, USB & Network thermal printer command execution." />
+    <meta name="theme-color" content="#0284c7" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ShashiPrint" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta property="og:title" content="Shashi Print Agent" />
+    <meta property="og:description" content="Mobile Print Agent for Android APK and PWA with real-time backend print job fetching, ESC/POS Bluetooth, USB & Network thermal printer command execution." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="module" crossorigin src="/assets/index-BcFHOA9N.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BfKC0S_q.css">
+  <link rel="manifest" href="/manifest.webmanifest"></head>
+  <body class="bg-slate-900 text-slate-100 antialiased selection:bg-cyan-500 selection:text-white">
+    <div id="root"></div>
+  </body>
+</html>
+

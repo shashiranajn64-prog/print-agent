@@ -20,7 +20,8 @@ import {
   Phone,
   QrCode,
   ShieldCheck,
-  Bluetooth
+  Bluetooth,
+  MessageSquarePlus
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { ShopAccount } from '../../server';
@@ -43,6 +44,7 @@ interface HeaderProps {
   onOpenShopPanel: () => void;
   onOpenCustomerPortal: () => void;
   onOpenAdminPanel: () => void;
+  onOpenFeedback?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -63,6 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenShopPanel,
   onOpenCustomerPortal,
   onOpenAdminPanel,
+  onOpenFeedback,
 }) => {
   const { isInstallable, isInstalled, install, isIOS } = usePWAInstall();
 
@@ -245,6 +248,18 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="hidden sm:inline">Awake</span>
               </button>
             </>
+          )}
+
+          {/* Feedback Button */}
+          {onOpenFeedback && (
+            <button
+              onClick={onOpenFeedback}
+              title="Give Real Feedback or Suggestion to Admin"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 text-xs font-semibold transition border border-slate-700 active:scale-95 shadow-sm"
+            >
+              <MessageSquarePlus className="w-3.5 h-3.5 text-amber-400" />
+              <span>Feedback</span>
+            </button>
           )}
 
           {/* In-App PWA / APK Install Button */}

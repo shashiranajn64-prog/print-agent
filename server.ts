@@ -80,6 +80,22 @@ let adminAccount = {
   isLoggedIn: false
 };
 
+// Real User Feedback model - ZERO FAKE / ZERO DEMO MESSAGES
+export interface UserFeedback {
+  id: string;
+  senderName: string;
+  senderContact?: string;
+  shopName?: string;
+  category: 'General Feedback' | 'Suggestion' | 'Issue / Bug' | 'Printing Help' | 'Appreciation';
+  rating: number; // 1 to 5 stars
+  message: string;
+  createdAt: string;
+  isRead: boolean;
+}
+
+// Strictly real feedbacks submitted by users (Starts completely empty)
+let userFeedbacks: UserFeedback[] = [];
+
 // In-memory data store for real print jobs (Clean - No fake jobs)
 let printJobs: PrintJob[] = [];
 
@@ -148,6 +164,23 @@ function calculateDailyStats(shopId?: string): DailyCollectionStats {
 }
 
 // ================= API ENDPOINTS =================
+
+// 0. Get App Version & Update Information
+app.get('/api/app-version', (_req: Request, res: Response) => {
+  res.json({
+    latestVersion: '1.0.1',
+    releaseDate: '2026-10-08',
+    changelog: [
+      'Daily Collection Live Tracking on Shop Login',
+      'Direct Razorpay Payment auto-verification (No UTR input needed)',
+      'Real-time ESC/POS Bluetooth & Network thermal printing',
+      'Instant Over-The-Air (OTA) updates support'
+    ],
+    mandatoryUpdate: false,
+    apkDownloadUrl: 'https://github.com/shashiranjan/shashi-print-agent/releases/latest/download/ShashiPrintAgent-debug.apk',
+    webUrl: process.env.VITE_APP_URL || 'https://ais-pre-ahpif75nvakpcce7ybedge-718433802346.asia-southeast1.run.app'
+  });
+});
 
 // 1. Get print jobs with optional status filter
 app.get('/api/print-jobs', (req: Request, res: Response) => {
@@ -1069,6 +1102,83 @@ app.post('/api/admin/change-password', (req: Request, res: Response) => {
     success: true,
     message: 'Admin password successfully badal gaya hai'
   });
+});
+
+// ======================= REAL FEEDBACK APIS =======================
+
+// 1. Submit Real Feedback (Public for all Shopkeepers & Customers)
+app.post('/api/feedbacks', (req: Request, res: Response) => {
+  const { senderName, senderContact, shopName, category, rating, message } = req.body;
+
+  if (!message || String(message).trim().length === 0) {
+    return res.status(400).json({ success: false, message: 'Feedback message cannot be empty' });
+  }
+
+  const newFeedback: UserFeedback = {
+    id: `fb-${Date.now().toString(36)}-${Math.floor(100 + Math.random() * 900)}`,
+    senderName: String(senderName || 'Anonymous User').trim(),
+    senderContact: senderContact ? String(senderContact).trim() : undefined,
+    shopName: shopName ? String(shopName).trim() : undefined,
+    category: category || 'General Feedback',
+    rating: Math.min(5, Math.max(1, Number(rating) || 5)),
+    message: String(message).trim(),
+    createdAt: new Date().toISOString(),
+    isRead: false
+  };
+
+  userFeedbacks.unshift(newFeedback);
+  console.log(`[Shashi Print Agent] Real feedback received from ${newFeedback.senderName}: "${newFeedback.message.slice(0, 40)}..."`);
+
+  res.status(201).json({
+    success: true,
+    message: 'Aapka feedback Super Admin tak pahunch gaya hai. Dhanyawad!',
+    feedback: newFeedback
+  });
+});
+
+// 2. Admin View All Real Feedbacks
+app.get('/api/admin/feedbacks', (req: Request, res: Response) => {
+  if (!adminAccount.isLoggedIn) {
+    return res.status(401).json({ success: false, message: 'Unauthorized. Admin login required.' });
+  }
+
+  res.json({
+    success: true,
+    count: userFeedbacks.length,
+    unreadCount: userFeedbacks.filter(f => !f.isRead).length,
+    feedbacks: userFeedbacks
+  });
+});
+
+// 3. Admin Mark Feedback as Read
+app.patch('/api/admin/feedbacks/:id/read', (req: Request, res: Response) => {
+  if (!adminAccount.isLoggedIn) {
+    return res.status(401).json({ success: false, message: 'Unauthorized. Admin login required.' });
+  }
+
+  const { id } = req.params;
+  const fb = userFeedbacks.find(f => f.id === id);
+  if (fb) {
+    fb.isRead = true;
+  }
+  res.json({ success: true, message: 'Feedback marked as read' });
+});
+
+// 4. Admin Delete a Feedback
+app.delete('/api/admin/feedbacks/:id', (req: Request, res: Response) => {
+  if (!adminAccount.isLoggedIn) {
+    return res.status(401).json({ success: false, message: 'Unauthorized. Admin login required.' });
+  }
+
+  const { id } = req.params;
+  const initialLength = userFeedbacks.length;
+  userFeedbacks = userFeedbacks.filter(f => f.id !== id);
+
+  if (userFeedbacks.length < initialLength) {
+    res.json({ success: true, message: 'Feedback deleted successfully' });
+  } else {
+    res.status(404).json({ success: false, message: 'Feedback not found' });
+  }
 });
 
 // Mount Vite or static build

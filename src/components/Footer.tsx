@@ -5,7 +5,6 @@ import {
   QrCode, 
   Smartphone, 
   ShieldCheck, 
-  Phone, 
   Mail, 
   Clock, 
   MapPin, 
@@ -16,7 +15,8 @@ import {
   ExternalLink,
   ChevronRight,
   Sliders,
-  Receipt
+  Receipt,
+  MessageSquarePlus
 } from 'lucide-react';
 import { ShopAccount } from '../../server';
 
@@ -26,6 +26,7 @@ interface FooterProps {
   onOpenShopPanel: () => void;
   onOpenAdminPanel: () => void;
   onOpenApkModal: () => void;
+  onOpenFeedback?: () => void;
   onChangeTab?: (tab: 'queue' | 'printers' | 'simulator') => void;
 }
 
@@ -35,6 +36,7 @@ export const Footer: React.FC<FooterProps> = ({
   onOpenShopPanel,
   onOpenAdminPanel,
   onOpenApkModal,
+  onOpenFeedback,
   onChangeTab
 }) => {
   return (
@@ -209,38 +211,55 @@ export const Footer: React.FC<FooterProps> = ({
                 <span>Super Admin Control Login</span>
               </button>
             </li>
+
+            {onOpenFeedback && (
+              <li>
+                <button
+                  onClick={onOpenFeedback}
+                  className="hover:text-amber-400 transition flex items-center gap-2 text-left text-amber-300/90 font-medium"
+                >
+                  <span className="text-amber-500">★</span>
+                  <span>Give Feedback / Suggestion</span>
+                </button>
+              </li>
+            )}
           </ul>
         </div>
 
-        {/* Column 3: Contact Us */}
+        {/* Column 3: Email Support & Feedback */}
         <div className="space-y-3">
           <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-2">
-            <Phone className="w-4 h-4 text-emerald-400" />
-            <span>Contact Us</span>
+            <Mail className="w-4 h-4 text-sky-400" />
+            <span>Support & Feedback</span>
           </h3>
 
           <div className="space-y-2.5 text-slate-300">
             <div className="flex items-start gap-2.5">
-              <Phone className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Helpdesk & Support</span>
-                <a href="tel:7870089309" className="font-mono font-bold text-white hover:text-emerald-400 transition">
-                  +91 7870089309
-                </a>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-2.5">
               <Mail className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Email Assistance</span>
-                <a href="mailto:support@shashiprintagent.in" className="font-medium text-white hover:text-sky-400 transition">
-                  support@shashiprintagent.in
+                <span className="text-slate-400 block text-[10px] uppercase font-semibold">Official Email Assistance</span>
+                <a href="mailto:helpshashiprintagent@gmail.com" className="font-semibold text-white hover:text-sky-400 transition break-all">
+                  helpshashiprintagent@gmail.com
                 </a>
               </div>
             </div>
 
-            <div className="flex items-start gap-2.5">
+            {onOpenFeedback && (
+              <div className="pt-1">
+                <button
+                  onClick={onOpenFeedback}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition active:scale-95"
+                >
+                  <MessageSquarePlus className="w-4 h-4 text-slate-950" />
+                  <span>Send Feedback to Admin</span>
+                </button>
+                <span className="text-[10px] text-slate-400 block text-center mt-1">
+                  Direct message reaches Super Admin
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-start gap-2.5 pt-1">
               <Clock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div>
                 <span className="text-slate-400 block text-[10px] uppercase font-semibold">Working Hours</span>

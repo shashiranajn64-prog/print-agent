@@ -18,9 +18,14 @@ import {
   Eye, 
   EyeOff,
   RefreshCw,
-  QrCode
+  QrCode,
+  MessageSquare,
+  Star,
+  Mail,
+  Check,
+  Sparkles
 } from 'lucide-react';
-import { ShopAccount } from '../../server';
+import { ShopAccount, UserFeedback } from '../../server';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -38,8 +43,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [adminPasswordInput, setAdminPasswordInput] = useState<string>('');
   const [showAdminPass, setShowAdminPass] = useState<boolean>(false);
 
-  const [activeTab, setActiveTab] = useState<'shops' | 'add_shop' | 'change_password'>('shops');
+  const [activeTab, setActiveTab] = useState<'shops' | 'add_shop' | 'feedbacks' | 'change_password'>('shops');
   const [shopsList, setShopsList] = useState<ShopAccount[]>([]);
+  const [feedbacksList, setFeedbacksList] = useState<UserFeedback[]>([]);
+  const [unreadFeedbacksCount, setUnreadFeedbacksCount] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -89,11 +96,50 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       if (data.success && data.isLoggedIn) {
         setIsAdminLoggedIn(true);
         fetchAllShops();
+        fetchFeedbacks();
       } else {
         setIsAdminLoggedIn(false);
       }
     } catch {
       setIsAdminLoggedIn(false);
+    }
+  };
+
+  const fetchFeedbacks = async () => {
+    try {
+      const res = await fetch('/api/admin/feedbacks');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.feedbacks)) {
+        setFeedbacksList(data.feedbacks);
+        setUnreadFeedbacksCount(data.unreadCount || 0);
+      }
+    } catch (err) {
+      console.error('Fetch admin feedbacks error:', err);
+    }
+  };
+
+  const handleMarkFeedbackRead = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/feedbacks/${id}/read`, { method: 'PATCH' });
+      if (res.ok) {
+        setFeedbacksList(prev => prev.map(f => f.id === id ? { ...f, isRead: true } : f));
+        setUnreadFeedbacksCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (err) {
+      console.error('Mark read error:', err);
+    }
+  };
+
+  const handleDeleteFeedback = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/feedbacks/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setFeedbacksList(prev => prev.filter(f => f.id !== id));
+        showNotice('Feedback message remove ho gaya', 'success');
+      }
+    } catch (err) {
+      console.error('Delete feedback error:', err);
     }
   };
 
@@ -130,6 +176,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         setIsAdminLoggedIn(true);
         showNotice('Super Admin login successful!', 'success');
         fetchAllShops();
+        fetchFeedbacks();
       } else {
         showNotice(data.message || 'Login failed', 'error');
       }
@@ -416,6 +463,29 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 </button>
 
                 <button
+                  onClick={() => {
+                    setActiveTab('feedbacks');
+                    fetchFeedbacks();
+                  }}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold transition relative ${
+                    activeTab === 'feedbacks'
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Real Feedbacks</span>
+                  {feedbacksList.length > 0 && (
+                    <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-amber-400 text-slate-950 font-black">
+                      {feedbacksList.length}
+                    </span>
+                  )}
+                  {unreadFeedbacksCount > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  )}
+                </button>
+
+                <button
                   onClick={() => setActiveTab('change_password')}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold transition ${
                     activeTab === 'change_password'
@@ -424,7 +494,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   }`}
                 >
                   <KeyRound className="w-4 h-4" />
-                  <span>Admin Change Password</span>
+                  <span>Admin Password</span>
                 </button>
               </div>
 
@@ -650,7 +720,150 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 </form>
               )}
 
-              {/* TAB 3: ADMIN CHANGE PASSWORD */}
+              {/* TAB 3: REAL USER FEEDBACKS (STRICTLY REAL ONLY - NO FAKE / NO DEMO) */}
+              {activeTab === 'feedbacks' && (
+                <div className="space-y-4">
+                  {/* Top Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                        <MessageSquare className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-sm text-white">Real User Feedbacks</h3>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            100% Real • No Demo
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Total {feedbacksList.length} real message{feedbacksList.length !== 1 ? 's' : ''} received from users
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={fetchFeedbacks}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold border border-slate-700 text-xs transition"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+
+                  {/* Empty state: No fake messages */}
+                  {feedbacksList.length === 0 ? (
+                    <div className="text-center py-14 bg-slate-950 rounded-3xl border border-slate-800 p-6 space-y-3">
+                      <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 text-slate-500 flex items-center justify-center mx-auto">
+                        <MessageSquare className="w-7 h-7" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-base font-bold text-white">Abhi tak koi naya feedback nahi aaya hai</h4>
+                        <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                          Yahan par koi fake ya sample message nahi dikhaya jaata. Jab koi shopkeeper ya customer app me <strong>&ldquo;Feedback&rdquo;</strong> button se message submit karega, to unke genuine real messages yahan turant dikhai denge.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {feedbacksList.map((fb) => (
+                        <div
+                          key={fb.id}
+                          className={`p-4 rounded-2xl border transition ${
+                            fb.isRead
+                              ? 'bg-slate-950/70 border-slate-800 text-slate-300'
+                              : 'bg-slate-950 border-amber-500/40 shadow-md shadow-amber-500/5'
+                          }`}
+                        >
+                          {/* Card Header */}
+                          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-800/80 pb-3">
+                            <div className="flex items-start gap-2.5">
+                              <div className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center text-amber-400 font-bold shrink-0">
+                                <User className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-white text-sm">
+                                    {fb.senderName || 'Anonymous User'}
+                                  </span>
+                                  {fb.shopName && (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 border border-sky-500/30 flex items-center gap-1">
+                                      <Store className="w-3 h-3" />
+                                      {fb.shopName}
+                                    </span>
+                                  )}
+                                  {!fb.isRead && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                                      New
+                                    </span>
+                                  )}
+                                </div>
+                                {fb.senderContact && (
+                                  <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                                    <Mail className="w-3 h-3 text-slate-500" />
+                                    <span>Contact: {fb.senderContact}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Rating & Category */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 text-amber-300">
+                                {fb.category}
+                              </span>
+                              <div className="flex items-center text-amber-400 bg-slate-900 px-2 py-1 rounded-xl border border-slate-800">
+                                {[...Array(fb.rating || 5)].map((_, i) => (
+                                  <Star key={i} className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Message Body */}
+                          <div className="py-3">
+                            <p className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed font-sans bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+                              {fb.message}
+                            </p>
+                          </div>
+
+                          {/* Card Footer: Timestamp & Actions */}
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-800/60">
+                            <span>
+                              Received: {new Date(fb.createdAt).toLocaleString('en-IN', {
+                                dateStyle: 'medium',
+                                timeStyle: 'short'
+                              })}
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              {!fb.isRead && (
+                                <button
+                                  onClick={() => handleMarkFeedbackRead(fb.id)}
+                                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 transition"
+                                >
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                  <span>Mark as Read</span>
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleDeleteFeedback(fb.id)}
+                                title="Delete this feedback"
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 border border-slate-700 transition"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: ADMIN CHANGE PASSWORD */}
               {activeTab === 'change_password' && (
                 <form onSubmit={handleChangeAdminPassword} className="bg-slate-950 p-5 rounded-3xl border border-slate-800 space-y-4 max-w-md mx-auto">
                   <h3 className="font-bold text-sm text-white flex items-center gap-2">

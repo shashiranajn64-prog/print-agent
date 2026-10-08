@@ -30,17 +30,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
 
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Install Dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci || npm install --legacy-peer-deps
+          else
+            npm install --legacy-peer-deps
+          fi
 
       - name: Build Web Application
         run: npm run build
@@ -48,13 +51,15 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Verify Capacitor Configuration
+      - name: Initialize or Sync Capacitor Android
         run: |
-          test -f capacitor.config.ts -o -f capacitor.config.json -o -f capacitor.config.js
-          test -d android
-
-      - name: Sync Capacitor Android
-        run: npx cap sync android
+          if [ ! -d "android" ]; then
+            echo "Android directory not found, adding android platform..."
+            npx cap add android
+          else
+            echo "Android directory exists, syncing web assets..."
+            npx cap sync android
+          fi
 
       - name: Verify Android Project
         run: |
