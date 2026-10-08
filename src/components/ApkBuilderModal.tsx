@@ -11,7 +11,10 @@ import {
   CheckCircle2, 
   ShieldCheck, 
   Zap,
-  Cpu
+  Cpu,
+  QrCode,
+  Share2,
+  Send
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
@@ -23,11 +26,67 @@ interface ApkBuilderModalProps {
 export const ApkBuilderModal: React.FC<ApkBuilderModalProps> = ({ isOpen, onClose }) => {
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const [copiedScript, setCopiedScript] = useState(false);
-  const [activeTab, setActiveTab] = useState<'pwa' | 'capacitor' | 'cloud'>('pwa');
+  const [activeTab, setActiveTab] = useState<'pwa' | 'capacitor' | 'cloud' | 'github'>('pwa');
+  const [copiedGithubYml, setCopiedGithubYml] = useState(false);
 
   if (!isOpen) return null;
 
   const currentUrl = typeof window !== 'undefined' ? window.location.origin : 'https://shashi-print-agent.app';
+
+  const githubWorkflowYml = `name: Build Shashi Print Agent APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Allows manual trigger from GitHub Actions
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 3. Install Dependencies & Build
+        run: |
+          npm install
+          npm run build
+
+      - name: 4. Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 5. Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 6. Add & Sync Capacitor Android
+        run: |
+          npm install --save-dev @capacitor/core @capacitor/cli @capacitor/android
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: 7. Build Debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: 8. Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShashiPrintAgent-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk`;
 
   const capacitorCommands = `# 1. Install Capacitor Android packages
 npm install @capacitor/core @capacitor/cli @capacitor/android
@@ -110,27 +169,39 @@ npx cap open android
           >
             3. Native Capacitor Android Build
           </button>
+          <button
+            onClick={() => setActiveTab('github')}
+            className={`pb-2.5 px-3 font-semibold transition border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'github'
+                ? 'text-amber-400 border-amber-400 font-bold'
+                : 'text-slate-400 border-transparent hover:text-slate-200'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <span>4. GitHub Actions (Auto APK)</span>
+          </button>
         </div>
 
         {/* Modal Body */}
         <div className="p-4 sm:p-6 space-y-6 text-xs text-slate-300">
           {activeTab === 'pwa' && (
             <div className="space-y-4">
-              <div className="bg-gradient-to-br from-sky-950/60 to-slate-900 border border-sky-800/50 rounded-2xl p-4 sm:p-5 space-y-3">
+              <div className="bg-gradient-to-br from-sky-950/60 to-slate-900 border border-sky-800/50 rounded-2xl p-4 sm:p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-sm text-white flex items-center gap-2">
                     <Zap className="w-4 h-4 text-sky-400" />
-                    Instant Android WebAPK (Recommended)
+                    Instant Android WebAPK (100% Working on Mobile)
                   </span>
                   <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     No Android Studio Needed
                   </span>
                 </div>
-                <p className="text-slate-300 leading-relaxed">
-                  Android Chrome generates a real native `.apk` in the background (Google WebAPK). It installs on your phone home screen, runs full screen without any browser bar, and has direct access to Bluetooth thermal printers, vibration, and audio!
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  Google Chrome Android me real native APK generate karta hai. Ye seedha phone home screen par install ho jata hai, bina browser bar ke full-screen chalta hai, aur isme Bluetooth thermal printer, vibration aur background printing ka direct access milta hai!
                 </p>
 
-                <div className="pt-2 flex flex-wrap gap-3">
+                {/* Direct Action Buttons on Mobile */}
+                <div className="flex flex-wrap items-center gap-3">
                   {!isInstalled && isInstallable ? (
                     <button
                       onClick={install}
@@ -145,13 +216,71 @@ npx cap open android
                       <span>Already Installed as Native App on this Device!</span>
                     </div>
                   ) : (
-                    <div className="bg-slate-800/90 p-3 rounded-xl border border-slate-700 text-slate-300 space-y-1">
-                      <p className="font-semibold text-white">To install on an Android Phone:</p>
-                      <p>1. Open this link in Google Chrome on your phone: <code className="text-sky-300 bg-slate-900 px-1 py-0.5 rounded">{currentUrl}</code></p>
-                      <p>2. Tap Chrome Menu (3 dots) &rarr; tap <strong>&ldquo;Install App&rdquo;</strong> or <strong>&ldquo;Add to Home Screen&rdquo;</strong>.</p>
-                      <p>3. Android will automatically install &ldquo;Shashi Print Agent&rdquo; as a native app with app icon!</p>
-                    </div>
+                    <button
+                      onClick={async () => {
+                        const worked = await install();
+                        if (!worked) {
+                          alert('Apne phone ke Chrome menu (3 dots) par tap karein aur "Install app" ya "Add to Home screen" par click karein!');
+                        }
+                      }}
+                      className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-95 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-500/25 transition"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Install App Now (Chrome One-Tap)</span>
+                    </button>
                   )}
+
+                  <a
+                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent('Install Shashi Print Agent on Android phone: ' + currentUrl)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 font-semibold transition active:scale-95"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Send to Phone on WhatsApp</span>
+                  </a>
+
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentUrl);
+                      alert('App Link Copied! Mobile Chrome me paste karke open karein.');
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold transition active:scale-95"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Link</span>
+                  </button>
+                </div>
+
+                {/* QR Code Scan to open on mobile phone directly */}
+                <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row items-center gap-4">
+                  <div className="p-2 bg-white rounded-xl shadow-lg shrink-0">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(currentUrl)}`}
+                      alt="Scan to Install APK on Phone"
+                      className="w-28 h-28 object-contain"
+                    />
+                  </div>
+                  <div className="space-y-1.5 text-center sm:text-left">
+                    <h4 className="font-bold text-white text-xs flex items-center justify-center sm:justify-start gap-1.5">
+                      <QrCode className="w-4 h-4 text-amber-400" />
+                      <span>Scan from Phone Camera to Open & Install</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Apne Android phone ke camera ya Google Lens se is QR code ko scan karein. Phone me website khulegi, fir neeche <strong>&ldquo;Install App&rdquo;</strong> dabate hi app phone me install ho jayegi!
+                    </p>
+                    <div className="font-mono text-[10px] text-sky-400 truncate max-w-xs">
+                      {currentUrl}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Manual 3-dot instructions */}
+                <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 text-slate-300 space-y-1 text-[11px]">
+                  <p className="font-semibold text-white">Agar Install prompt automatically na aaye:</p>
+                  <p>1. Android phone me Google Chrome kholein aur link open karein.</p>
+                  <p>2. Chrome ke top-right <strong>3 dots (⋮)</strong> par click karein.</p>
+                  <p>3. <strong>&ldquo;Install app&rdquo;</strong> ya <strong>&ldquo;Add to Home Screen&rdquo;</strong> par tap karein. Ye bina kisi coding ke seedha phone me app icon ke sath install ho jata hai!</p>
                 </div>
               </div>
 
@@ -234,6 +363,62 @@ npx cap open android
                 <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-sky-300 overflow-x-auto whitespace-pre-wrap leading-relaxed">
                   {capacitorCommands}
                 </pre>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'github' && (
+            <div className="space-y-4">
+              <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-400" />
+                      <span>GitHub Actions Automated APK Builder (.github/workflows/build-apk.yml)</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Code push karte hi GitHub free me cloud par Android APK build kar deta hai!
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(githubWorkflowYml);
+                      setCopiedGithubYml(true);
+                      setTimeout(() => setCopiedGithubYml(false), 2000);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs transition"
+                  >
+                    {copiedGithubYml ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedGithubYml ? 'YAML Copied!' : 'Copy Workflow YAML'}</span>
+                  </button>
+                </div>
+
+                {/* Step-by-step instructions */}
+                <ol className="list-decimal list-inside space-y-2 text-slate-300 bg-slate-950/70 p-4 rounded-xl border border-slate-800 text-[11px]">
+                  <li>
+                    <strong>File already created:</strong> Repository me <code className="text-amber-300">.github/workflows/build-apk.yml</code> file ban chuki hai.
+                  </li>
+                  <li>
+                    <strong>Push to GitHub:</strong> Apna code GitHub repo me push karein (<code className="text-sky-300">git push origin main</code>).
+                  </li>
+                  <li>
+                    <strong>Actions Tab:</strong> GitHub repository page par jayein aur upar <strong>&ldquo;Actions&rdquo;</strong> tab par click karein.
+                  </li>
+                  <li>
+                    <strong>Run Workflow:</strong> Left side me <strong>&ldquo;Build Shashi Print Agent APK&rdquo;</strong> select karein &rarr; right side me <strong>&ldquo;Run workflow&rdquo;</strong> button dabayein.
+                  </li>
+                  <li>
+                    <strong>Download APK:</strong> Build complete hone par (lagbhag 2-3 minute), workflow run par click karein &rarr; neeche <strong>Artifacts</strong> section me se <code className="text-emerald-400 font-bold">ShashiPrintAgent-Android-APK</code> download kar lein!
+                  </li>
+                </ol>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-slate-400">Workflow Code (.github/workflows/build-apk.yml):</span>
+                  <pre className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 font-mono text-[10px] text-amber-300 overflow-x-auto max-h-56 scrollbar-thin">
+                    {githubWorkflowYml}
+                  </pre>
+                </div>
               </div>
             </div>
           )}

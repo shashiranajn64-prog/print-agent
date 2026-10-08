@@ -22,17 +22,13 @@ interface NewJobModalProps {
 export const NewJobModal: React.FC<NewJobModalProps> = ({ isOpen, onClose, onCreateJob, currentShop }) => {
   const [jobType, setJobType] = useState<'tax_invoice' | 'kot' | 'token_slip' | 'upi_receipt'>('tax_invoice');
   const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('58mm');
-  const [title, setTitle] = useState(currentShop ? `${currentShop.shopName} Bill` : 'Retail Tax Invoice');
-  const [customerName, setCustomerName] = useState('Shashi Kumar');
-  const [customerPhone, setCustomerPhone] = useState('+91 98765 43210');
-  const [source, setSource] = useState(currentShop ? currentShop.shopName : 'Cashier Terminal #1');
+  const [title, setTitle] = useState(currentShop ? `${currentShop.shopName} Bill` : '');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [source, setSource] = useState(currentShop ? currentShop.shopName : '');
   const [priority, setPriority] = useState<'normal' | 'high' | 'urgent'>('high');
-  const [notes, setNotes] = useState(currentShop ? `Thank you for visiting ${currentShop.shopName}!` : 'Thank you! Visit again.');
-  const [items, setItems] = useState([
-    { name: 'Amul Butter 500g', qty: 1, price: 285.00 },
-    { name: 'Britannia Good Day 120g', qty: 2, price: 35.00 },
-    { name: 'Cadbury Dairy Milk Silk', qty: 1, price: 180.00 },
-  ]);
+  const [notes, setNotes] = useState('');
+  const [items, setItems] = useState<Array<{ name: string; qty: number; price: number }>>([]);
 
   if (!isOpen) return null;
 

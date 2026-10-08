@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Store, 
   KeyRound, 
@@ -18,9 +18,11 @@ import {
   Phone, 
   IndianRupee,
   Sparkles,
-  Download
+  Download,
+  Bluetooth
 } from 'lucide-react';
-import { ShopAccount } from '../../server';
+import { ShopAccount, PrinterDevice } from '../../server';
+import { PrinterSettings } from './PrinterSettings';
 
 interface ShopManagementModalProps {
   isOpen: boolean;
@@ -28,6 +30,15 @@ interface ShopManagementModalProps {
   shop: ShopAccount;
   onShopUpdated: (updatedShop: ShopAccount) => void;
   onOpenCustomerPortal: (shopId: string) => void;
+  initialTab?: 'detail' | 'password' | 'upi' | 'rates' | 'customer_qr' | 'printer_bt';
+  printers: PrinterDevice[];
+  activePrinterId: string;
+  onSelectActivePrinter: (id: string) => void;
+  onAddPrinter: (p: Partial<PrinterDevice>) => void;
+  onDeletePrinter?: (id: string) => void;
+  onSetDefaultPrinter?: (id: string) => void;
+  onClearAllPrinters?: () => void;
+  soundEnabled: boolean;
 }
 
 export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
@@ -36,8 +47,23 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
   shop,
   onShopUpdated,
   onOpenCustomerPortal,
+  initialTab = 'detail',
+  printers,
+  activePrinterId,
+  onSelectActivePrinter,
+  onAddPrinter,
+  onDeletePrinter,
+  onSetDefaultPrinter,
+  onClearAllPrinters,
+  soundEnabled,
 }) => {
-  const [activeTab, setActiveTab] = useState<'detail' | 'password' | 'upi' | 'rates' | 'customer_qr'>('detail');
+  const [activeTab, setActiveTab] = useState<'detail' | 'password' | 'upi' | 'rates' | 'customer_qr' | 'printer_bt'>(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // 1. Shop Detail State
   const [shopName, setShopName] = useState(shop.shopName);
@@ -294,12 +320,25 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
             onClick={() => setActiveTab('customer_qr')}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition ${
               activeTab === 'customer_qr'
-                ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30 animate-pulse'
+                ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
                 : 'text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20'
             }`}
           >
             <Scan className="w-4 h-4" />
             <span>5. QR FOR CUSTOMER ★</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('printer_bt')}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition ${
+              activeTab === 'printer_bt'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                : 'text-indigo-300 bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20'
+            }`}
+          >
+            <Bluetooth className="w-4 h-4 text-indigo-400" />
+            <span>6. Printer & Bluetooth</span>
           </button>
         </div>
 
@@ -736,6 +775,45 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= 6. PRINTER & BLUETOOTH ================= */}
+          {activeTab === 'printer_bt' && (
+            <div className="space-y-4">
+              <div className="bg-gradient-to-r from-indigo-950/60 via-slate-900 to-sky-950/60 border border-indigo-500/30 rounded-2xl p-4 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+                    <Bluetooth className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span>Shop Printer & Bluetooth Management</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        Shop Logged In
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-300 mt-0.5">
+                      Apni dukan ke liye Bluetooth roll printer, USB thermal, WiFi network printer ya Bara A4 printer (HP/Epson/Canon) add karein.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Render PrinterSettings inside Shop Login Modal */}
+              <div className="bg-slate-950/70 rounded-2xl border border-slate-800 p-2 sm:p-4">
+                <PrinterSettings
+                  printers={printers}
+                  activePrinterId={activePrinterId}
+                  onSelectActivePrinter={onSelectActivePrinter}
+                  onAddPrinter={onAddPrinter}
+                  onDeletePrinter={onDeletePrinter}
+                  onSetDefaultPrinter={onSetDefaultPrinter}
+                  onClearAllPrinters={onClearAllPrinters}
+                  soundEnabled={soundEnabled}
+                  shopName={shop.shopName}
+                />
               </div>
             </div>
           )}

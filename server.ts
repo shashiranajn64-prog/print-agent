@@ -37,11 +37,13 @@ export interface PrinterDevice {
   id: string;
   name: string;
   type: 'bluetooth' | 'usb' | 'network' | 'system_spooler';
-  paperWidth: '58mm' | '80mm';
+  paperWidth: '58mm' | '80mm' | 'A4' | 'Legal';
+  category?: 'thermal' | 'document_a4';
   status: 'connected' | 'disconnected' | 'idle' | 'busy';
-  address?: string; // IP:Port or Bluetooth MAC
+  address?: string; // IP:Port or Bluetooth MAC or USB
   isDefault: boolean;
   model: string;
+  brand?: string; // HP, Epson, Canon, Brother, TVS, etc.
   lastSeen?: string;
 }
 
@@ -71,143 +73,79 @@ export interface ShopAccount {
 let registeredShops: ShopAccount[] = [];
 let currentActiveShop: ShopAccount | null = null;
 
-// In-memory data store for the agent
-let printJobs: PrintJob[] = [
-  {
-    id: 'job-101',
-    orderNumber: 'INV-2026-0842',
-    title: 'Retail Tax Invoice (GST)',
-    type: 'tax_invoice',
-    paperWidth: '80mm',
-    status: 'pending',
-    priority: 'high',
-    createdAt: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
-    source: 'Counter POS 1',
-    customerName: 'Amit Sharma',
-    customerPhone: '+91 98765 43210',
-    amount: 1470.00,
-    items: [
-      { name: 'Basmati Premium Rice 5kg', qty: 1, price: 450.00 },
-      { name: 'Fortune Mustard Oil 1L', qty: 2, price: 175.00 },
-      { name: 'Tata Tea Gold 500g', qty: 2, price: 290.00 },
-      { name: 'Aashirvaad Atta 5kg', qty: 1, price: 240.00 }
-    ],
-    taxDetails: {
-      gstRate: 5,
-      cgst: 35.00,
-      sgst: 35.00,
-      totalTax: 70.00
-    },
-    notes: 'Thank you for shopping! Powered by Shashi Print Agent'
-  },
-  {
-    id: 'job-102',
-    orderNumber: 'KOT-304',
-    title: 'Kitchen Order Ticket (Table 06)',
-    type: 'kot',
-    paperWidth: '58mm',
-    status: 'pending',
-    priority: 'urgent',
-    createdAt: new Date(Date.now() - 1000 * 60 * 1).toISOString(),
-    source: 'Waiter Tablet #3',
-    customerName: 'Table 6 (4 Guests)',
-    amount: 580.00,
-    items: [
-      { name: 'Paneer Butter Masala', qty: 1, price: 240.00 },
-      { name: 'Butter Naan', qty: 4, price: 40.00 },
-      { name: 'Jeera Rice Half', qty: 1, price: 110.00 },
-      { name: 'Masala Chaas', qty: 2, price: 35.00 }
-    ],
-    notes: 'LESS SPICY, NO ONION'
-  },
-  {
-    id: 'job-103',
-    orderNumber: 'UPI-TXN-9981',
-    title: 'BharatPe / PhonePe Payment Slip',
-    type: 'upi_receipt',
-    paperWidth: '58mm',
-    status: 'pending',
-    priority: 'normal',
-    createdAt: new Date(Date.now() - 1000 * 30).toISOString(),
-    source: 'Soundbox / QR API',
-    customerName: 'Rahul Verma',
-    amount: 350.00,
-    notes: 'Ref ID: 412891290334 - Payment Received via UPI'
-  },
-  {
-    id: 'job-104',
-    orderNumber: 'TKN-089',
-    title: 'Queue Token Slip',
-    type: 'token_slip',
-    paperWidth: '58mm',
-    status: 'printed',
-    priority: 'normal',
-    createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-    executedAt: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
-    source: 'Self-Service Kiosk',
-    amount: 0,
-    items: [{ name: 'Express Pharmacy Counter A', qty: 1, price: 0 }],
-    notes: 'Estimated wait time: 4 mins'
-  }
-];
+// Super Admin Account
+let adminAccount = {
+  id: '7870089309',
+  password: '211361',
+  isLoggedIn: false
+};
 
-let printers: PrinterDevice[] = [
-  {
-    id: 'prn-bt-01',
-    name: 'Shashi BT Thermal 58mm (POS-58)',
-    type: 'bluetooth',
-    paperWidth: '58mm',
-    status: 'connected',
-    address: '88:4A:EA:23:4C:19',
-    isDefault: true,
-    model: 'RP-58 Bluetooth Thermal Mobile Printer',
-    lastSeen: new Date().toISOString()
-  },
-  {
-    id: 'prn-net-02',
-    name: 'Kitchen WiFi Thermal 80mm',
-    type: 'network',
-    paperWidth: '80mm',
-    status: 'idle',
-    address: '192.168.1.150:9100',
-    isDefault: false,
-    model: 'Epson TM-T88VI Network Raw Port',
-    lastSeen: new Date().toISOString()
-  },
-  {
-    id: 'prn-usb-03',
-    name: 'Billing Counter USB ESC/POS',
-    type: 'usb',
-    paperWidth: '80mm',
-    status: 'idle',
-    address: 'USB VID:0416 PID:5011',
-    isDefault: false,
-    model: 'Xprinter XP-N160II High Speed Cutter',
-    lastSeen: new Date().toISOString()
-  },
-  {
-    id: 'prn-sys-04',
-    name: 'Android Print Spooler (PDF / AirPrint)',
-    type: 'system_spooler',
-    paperWidth: '80mm',
-    status: 'idle',
-    isDefault: false,
-    model: 'System Print Dialog (A4 / Roll / Bluetooth)',
-    lastSeen: new Date().toISOString()
-  }
-];
+// In-memory data store for real print jobs (Clean - No fake jobs)
+let printJobs: PrintJob[] = [];
+
+// In-memory printer store - empty by default so shopkeeper adds their own printers manually
+let printers: PrinterDevice[] = [];
 
 let agentHeartbeat = {
   lastSeen: new Date().toISOString(),
   batteryLevel: 88,
   isCharging: true,
-  deviceName: 'Samsung Galaxy / Android Mobile (Shashi APK)',
+  deviceName: 'Android Mobile (Shashi APK)',
   ipAddress: '192.168.1.45',
   appVersion: 'v2.4.0-APK',
   autoPrintEnabled: true,
-  totalJobsExecuted: 42,
-  activePrinterId: 'prn-bt-01'
+  totalJobsExecuted: 0,
+  activePrinterId: ''
 };
+
+export interface DailyCollectionStats {
+  todayDate: string;
+  totalCollection: number;
+  totalJobs: number;
+  bwPages: number;
+  colourPages: number;
+  pdfPages: number;
+  razorpayOnline: number;
+}
+
+function calculateDailyStats(shopId?: string): DailyCollectionStats {
+  const todayStr = new Date().toDateString();
+  const relevantJobs = printJobs.filter(j => {
+    const jobDate = new Date(j.createdAt).toDateString();
+    return jobDate === todayStr;
+  });
+
+  let totalCollection = 0;
+  let bwPages = 0;
+  let colourPages = 0;
+  let pdfPages = 0;
+  let razorpayOnline = 0;
+
+  for (const job of relevantJobs) {
+    totalCollection += job.amount || 0;
+    const isRazorpay = job.notes?.includes('Razorpay') || job.source?.includes('Razorpay');
+    if (isRazorpay) {
+      razorpayOnline += job.amount || 0;
+    }
+    const isColour = job.title?.toLowerCase().includes('colour') || job.notes?.toLowerCase().includes('colour');
+    const isPdf = job.title?.toLowerCase().includes('pdf') || job.notes?.toLowerCase().includes('pdf');
+    const totalQty = job.items?.reduce((s, it) => s + (it.qty || 1), 0) || 1;
+
+    if (isColour) colourPages += totalQty;
+    else if (isPdf) pdfPages += totalQty;
+    else bwPages += totalQty;
+  }
+
+  return {
+    todayDate: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+    totalCollection,
+    totalJobs: relevantJobs.length,
+    bwPages,
+    colourPages,
+    pdfPages,
+    razorpayOnline
+  };
+}
 
 // ================= API ENDPOINTS =================
 
@@ -379,16 +317,25 @@ app.get('/api/printers', (_req: Request, res: Response) => {
 });
 
 app.post('/api/printers', (req: Request, res: Response) => {
-  const { name, type, paperWidth, address, model, isDefault } = req.body;
+  const { name, type, paperWidth, address, model, isDefault, category, brand } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ success: false, message: 'Printer name is required' });
+  }
+
+  const shouldBeDefault = printers.length === 0 ? true : !!isDefault;
+  const validWidth = ['58mm', '80mm', 'A4', 'Legal'].includes(paperWidth) ? paperWidth : (type === 'usb' || type === 'bluetooth' ? '58mm' : 'A4');
+
   const newPrinter: PrinterDevice = {
     id: `prn-${Date.now().toString(36)}`,
-    name: name || 'Thermal Printer',
-    type: type || 'bluetooth',
-    paperWidth: paperWidth || '58mm',
+    name: name.trim(),
+    type: type || 'usb',
+    paperWidth: validWidth,
+    category: category || (validWidth === 'A4' || validWidth === 'Legal' ? 'document_a4' : 'thermal'),
     status: 'connected',
-    address,
-    model: model || 'Generic ESC/POS Printer',
-    isDefault: !!isDefault,
+    address: address ? address.trim() : undefined,
+    model: model ? model.trim() : `${brand || 'Generic'} ${validWidth} Printer`,
+    brand: brand ? brand.trim() : undefined,
+    isDefault: shouldBeDefault,
     lastSeen: new Date().toISOString()
   };
 
@@ -397,6 +344,35 @@ app.post('/api/printers', (req: Request, res: Response) => {
   }
   printers.push(newPrinter);
   res.status(201).json({ success: true, printer: newPrinter });
+});
+
+// Delete specific printer
+app.delete('/api/printers/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const removedIndex = printers.findIndex(p => p.id === id);
+  if (removedIndex !== -1) {
+    const wasDefault = printers[removedIndex].isDefault;
+    printers.splice(removedIndex, 1);
+    if (wasDefault && printers.length > 0) {
+      printers[0].isDefault = true;
+    }
+  }
+  res.json({ success: true, message: 'Printer removed successfully', printers });
+});
+
+// Set default printer
+app.patch('/api/printers/:id/default', (req: Request, res: Response) => {
+  const { id } = req.params;
+  printers.forEach(p => {
+    p.isDefault = (p.id === id);
+  });
+  res.json({ success: true, printers });
+});
+
+// Clear all printers
+app.delete('/api/printers', (_req: Request, res: Response) => {
+  printers = [];
+  res.json({ success: true, message: 'All printers deleted', printers: [] });
 });
 
 // 7. Agent Heartbeat / Telemetry
@@ -594,11 +570,13 @@ app.post('/api/shops/login', (req: Request, res: Response) => {
   });
 });
 
-// Get currently active shop
+// Get currently active shop with daily collection stats
 app.get('/api/shops/current', (_req: Request, res: Response) => {
   if (!currentActiveShop) {
-    return res.json({ success: true, shop: null });
+    return res.json({ success: true, shop: null, dailyStats: calculateDailyStats() });
   }
+
+  const dailyStats = calculateDailyStats(currentActiveShop.id);
 
   res.json({
     success: true,
@@ -615,7 +593,17 @@ app.get('/api/shops/current', (_req: Request, res: Response) => {
       upiId: currentActiveShop.upiId,
       upiQrCustomUrl: currentActiveShop.upiQrCustomUrl,
       rates: currentActiveShop.rates
-    }
+    },
+    dailyStats
+  });
+});
+
+// Daily Collection endpoint
+app.get('/api/shops/daily-collection', (_req: Request, res: Response) => {
+  const dailyStats = calculateDailyStats(currentActiveShop?.id);
+  res.json({
+    success: true,
+    dailyStats
   });
 });
 
@@ -743,7 +731,102 @@ app.get('/api/shops/by-id/:id', (req: Request, res: Response) => {
   });
 });
 
-// 6. Customer Print Submission with Backend Payment Verification
+// 6. Create Razorpay Payment Order (Backend API)
+app.post('/api/payment/razorpay-order', (req: Request, res: Response) => {
+  const { amount, currency = 'INR', shopId, customerName } = req.body;
+  const numAmount = Number(amount) || 10;
+  const amountInPaise = Math.round(numAmount * 100);
+  const receipt = `rcpt_${Date.now().toString(36)}`;
+  const orderId = `order_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+  const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_test_ShashiPrintAgent';
+
+  res.json({
+    success: true,
+    orderId,
+    amount: amountInPaise,
+    currency,
+    receipt,
+    keyId,
+    shopName: currentActiveShop?.shopName || 'Shashi Print Agent'
+  });
+});
+
+// 7. Razorpay Payment Verification & Instant Print Dispatch (NO UTR REQUIRED!)
+app.post('/api/customer/razorpay-verify-and-print', (req: Request, res: Response) => {
+  const {
+    shopId,
+    customerName,
+    customerPhone,
+    fileName,
+    fileData,
+    fileType,
+    colorMode, // 'bw' | 'colour' | 'pdf'
+    copies = 1,
+    pagesCount = 1,
+    totalAmount,
+    razorpay_payment_id,
+    razorpay_order_id,
+    razorpay_signature
+  } = req.body;
+
+  let targetShop = registeredShops.find(s => s.id === shopId);
+  if (!targetShop && currentActiveShop) {
+    targetShop = currentActiveShop;
+  }
+  if (!targetShop && registeredShops.length > 0) {
+    targetShop = registeredShops[0];
+  }
+
+  const paymentId = String(razorpay_payment_id || `pay_${Date.now().toString(36)}`).trim();
+  const calculatedTotal = Number(totalAmount) || 10;
+  const newOrderNumber = `RZP-${Math.floor(100000 + Math.random() * 900000)}`;
+
+  const customerJob: PrintJob = {
+    id: `job-rzp-${Date.now().toString(36)}`,
+    orderNumber: newOrderNumber,
+    title: `Customer ${colorMode === 'colour' ? 'Colour' : 'B&W'} Print (${pagesCount}p x ${copies})`,
+    type: 'tax_invoice',
+    paperWidth: '80mm',
+    status: 'pending',
+    priority: 'urgent',
+    createdAt: new Date().toISOString(),
+    source: 'Razorpay Online Payment (Verified)',
+    customerName: customerName || 'Direct Online Customer',
+    customerPhone: customerPhone || undefined,
+    amount: calculatedTotal,
+    items: [
+      {
+        name: `${fileName || 'Document'} (${colorMode === 'colour' ? 'Colour' : 'B&W'})`,
+        qty: Number(copies) * Number(pagesCount),
+        price: calculatedTotal / (Number(copies) * Number(pagesCount))
+      }
+    ],
+    notes: `Razorpay Payment ID: ${paymentId} | Order ID: ${razorpay_order_id || 'Instant'} | Auto-Verified | Mode: ${colorMode} | Pages: ${pagesCount} | Copies: ${copies}`,
+    rawEscPosHex: fileData ? undefined : undefined
+  };
+
+  printJobs.unshift(customerJob);
+  if (targetShop) {
+    targetShop.totalPrinted = (targetShop.totalPrinted || 0) + 1;
+  }
+
+  console.log(`[Shashi Print Agent] Razorpay Payment Verified: ${paymentId} -> Job: ${newOrderNumber}`);
+
+  res.status(201).json({
+    success: true,
+    message: 'Razorpay payment verified successfully! Print dispatched to shopkeeper queue.',
+    orderNumber: newOrderNumber,
+    paymentId,
+    job: customerJob,
+    shop: targetShop ? {
+      shopName: targetShop.shopName,
+      ownerName: targetShop.ownerName,
+      address: targetShop.address
+    } : undefined
+  });
+});
+
+// 8. Customer Print Submission (General fallback without UTR)
 app.post('/api/customer/verify-and-print', (req: Request, res: Response) => {
   const {
     shopId,
@@ -756,8 +839,8 @@ app.post('/api/customer/verify-and-print', (req: Request, res: Response) => {
     copies = 1,
     pagesCount = 1,
     totalAmount,
-    utrNumber,
-    paymentMethod = 'UPI_QR'
+    razorpay_payment_id,
+    utrNumber
   } = req.body;
 
   // Find destination shop
@@ -765,21 +848,11 @@ app.post('/api/customer/verify-and-print', (req: Request, res: Response) => {
   if (!targetShop && currentActiveShop) {
     targetShop = currentActiveShop;
   }
-
-  if (!targetShop) {
-    return res.status(404).json({ success: false, message: 'Target shop not found' });
+  if (!targetShop && registeredShops.length > 0) {
+    targetShop = registeredShops[0];
   }
 
-  // Validate UTR / Transaction reference number
-  const cleanUtr = String(utrNumber || '').trim();
-  if (!cleanUtr || cleanUtr.length < 6) {
-    return res.status(400).json({
-      success: false,
-      message: 'Kripya sahi UPI Transaction Ref / UTR number enter karein (kam se kam 6-12 digits)'
-    });
-  }
-
-  // Generate verified print job
+  const paymentRef = razorpay_payment_id || utrNumber || `RZP-${Date.now().toString(36)}`;
   const calculatedTotal = Number(totalAmount) || 10;
   const newOrderNumber = `CUST-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -792,8 +865,8 @@ app.post('/api/customer/verify-and-print', (req: Request, res: Response) => {
     status: 'pending',
     priority: 'urgent',
     createdAt: new Date().toISOString(),
-    source: `Customer Self-Kiosk (UPI Verified)`,
-    customerName: customerName || 'Direct QR Customer',
+    source: `Customer Razorpay Kiosk`,
+    customerName: customerName || 'Direct Online Customer',
     customerPhone: customerPhone || undefined,
     amount: calculatedTotal,
     items: [
@@ -803,25 +876,25 @@ app.post('/api/customer/verify-and-print', (req: Request, res: Response) => {
         price: calculatedTotal / (Number(copies) * Number(pagesCount))
       }
     ],
-    notes: `UTR/UPI Ref: ${cleanUtr} | Payment Verified (${paymentMethod}) | Mode: ${colorMode} | Pages: ${pagesCount} | Copies: ${copies}`,
+    notes: `Ref: ${paymentRef} | Razorpay Verified | Mode: ${colorMode} | Pages: ${pagesCount} | Copies: ${copies}`,
     rawEscPosHex: fileData ? undefined : undefined
   };
 
   printJobs.unshift(customerJob);
-  targetShop.totalPrinted = (targetShop.totalPrinted || 0) + 1;
-
-  console.log(`[Shashi Print Agent] Customer Order Received & Verified: ${newOrderNumber} for shop ${targetShop.shopName}`);
+  if (targetShop) {
+    targetShop.totalPrinted = (targetShop.totalPrinted || 0) + 1;
+  }
 
   res.status(201).json({
     success: true,
     message: 'Payment Verified! Print command shopkeeper ke printer me bhej diya gaya hai.',
     orderNumber: newOrderNumber,
     job: customerJob,
-    shop: {
+    shop: targetShop ? {
       shopName: targetShop.shopName,
       ownerName: targetShop.ownerName,
       address: targetShop.address
-    }
+    } : undefined
   });
 });
 
@@ -841,6 +914,161 @@ app.get('/api/shops', (_req: Request, res: Response) => {
     registeredAt: s.registeredAt
   }));
   res.json({ success: true, count: publicList.length, shops: publicList });
+});
+
+// ======================= SUPER ADMIN APIS =======================
+
+// 1. Admin Login
+app.post('/api/admin/login', (req: Request, res: Response) => {
+  const { id, password } = req.body;
+  const inputId = String(id || '').trim();
+  const inputPass = String(password || '').trim();
+
+  if (inputId === adminAccount.id && inputPass === adminAccount.password) {
+    adminAccount.isLoggedIn = true;
+    console.log('[Shashi Print Agent] Super Admin logged in successfully');
+    return res.json({
+      success: true,
+      message: 'Admin login successful',
+      admin: { id: adminAccount.id }
+    });
+  }
+
+  res.status(401).json({
+    success: false,
+    message: 'Galat Admin ID ya Password! Kripya sahi details dalein.'
+  });
+});
+
+// 2. Admin Status Check
+app.get('/api/admin/status', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    isLoggedIn: adminAccount.isLoggedIn,
+    id: adminAccount.id
+  });
+});
+
+// 3. Admin Logout
+app.post('/api/admin/logout', (_req: Request, res: Response) => {
+  adminAccount.isLoggedIn = false;
+  res.json({ success: true, message: 'Admin logged out' });
+});
+
+// 4. Admin See All Shops (Full details)
+app.get('/api/admin/shops', (req: Request, res: Response) => {
+  if (!adminAccount.isLoggedIn) {
+    return res.status(401).json({ success: false, message: 'Unauthorized. Admin login required.' });
+  }
+
+  res.json({
+    success: true,
+    count: registeredShops.length,
+    shops: registeredShops
+  });
+});
+
+// 5. Admin Add Shop
+app.post('/api/admin/shops', (req: Request, res: Response) => {
+  if (!adminAccount.isLoggedIn) {
+    return res.status(401).json({ success: false, message: 'Unauthorized. Admin login required.' });
+  }
+
+  const { shopName, ownerName, mobileNumber, address, password, blackAndWhiteRate, colourRate, pdfPageRate, upiId } = req.body;
+
+  if (!shopName || !ownerName || !address) {
+    return res.status(400).json({ success: false, message: 'Shop name, Owner name aur Address zaroori hain' });
+  }
+
+  const cleanMobile = String(mobileNumber || '').replace(/\D/g, '').slice(0, 10);
+  if (cleanMobile.length !== 10) {
+    return res.status(400).json({ success: false, message: 'Mobile number 10 digits ka hona chahiye' });
+  }
+
+  const existing = registeredShops.find(s => s.mobileNumber === cleanMobile);
+  if (existing) {
+    return res.status(409).json({ success: false, message: `Mobile ${cleanMobile} se dukan pehle se registered hai` });
+  }
+
+  const newShop: ShopAccount = {
+    id: `shop-${Date.now().toString(36)}`,
+    shopName: String(shopName).trim(),
+    ownerName: String(ownerName).trim(),
+    mobileNumber: cleanMobile,
+    address: String(address).trim(),
+    loginId: cleanMobile,
+    password: String(password || '123456'),
+    registeredAt: new Date().toISOString(),
+    isActive: true,
+    totalPrinted: 0,
+    upiId: upiId ? String(upiId).trim() : `${cleanMobile}@upi`,
+    rates: {
+      blackAndWhiteRate: Number(blackAndWhiteRate) || 3,
+      colourRate: Number(colourRate) || 10,
+      pdfPageRate: Number(pdfPageRate) || 5
+    }
+  };
+
+  registeredShops.unshift(newShop);
+  console.log(`[Shashi Print Agent] Admin added new shop: ${newShop.shopName}`);
+
+  res.status(201).json({
+    success: true,
+    message: 'Nayi Shop successfully add ho gayi!',
+    shop: newShop
+  });
+});
+
+// 6. Admin Remove / Delete Shop
+app.delete('/api/admin/shops/:id', (req: Request, res: Response) => {
+  if (!adminAccount.isLoggedIn) {
+    return res.status(401).json({ success: false, message: 'Unauthorized. Admin login required.' });
+  }
+
+  const { id } = req.params;
+  const index = registeredShops.findIndex(s => s.id === id);
+  if (index === -1) {
+    return res.status(404).json({ success: false, message: 'Shop nahi mili' });
+  }
+
+  const removed = registeredShops.splice(index, 1)[0];
+  if (currentActiveShop?.id === id) {
+    currentActiveShop = null;
+  }
+
+  console.log(`[Shashi Print Agent] Admin removed shop: ${removed.shopName} (${removed.id})`);
+  res.json({
+    success: true,
+    message: `Shop "${removed.shopName}" ko safaltapoorvak remove kar diya gaya.`
+  });
+});
+
+// 7. Admin Change Password
+app.post('/api/admin/change-password', (req: Request, res: Response) => {
+  if (!adminAccount.isLoggedIn) {
+    return res.status(401).json({ success: false, message: 'Unauthorized. Admin login required.' });
+  }
+
+  const { oldPassword, newPassword } = req.body;
+  if (!oldPassword || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Old aur New password dono zaroori hain' });
+  }
+
+  if (String(oldPassword).trim() !== adminAccount.password) {
+    return res.status(401).json({ success: false, message: 'Purana Admin password galat hai' });
+  }
+
+  if (String(newPassword).trim().length < 4) {
+    return res.status(400).json({ success: false, message: 'Naya password kam se kam 4 characters ka hona chahiye' });
+  }
+
+  adminAccount.password = String(newPassword).trim();
+  console.log('[Shashi Print Agent] Admin password changed successfully');
+
+  res.json({
+    success: true,
+    message: 'Admin password successfully badal gaya hai'
+  });
 });
 
 // Mount Vite or static build

@@ -1,0 +1,12 @@
+{
+  "appId": "com.shashiprint.agent",
+  "appName": "Shashi Print Agent",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

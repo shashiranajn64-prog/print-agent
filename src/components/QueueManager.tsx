@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Printer, 
   CheckCircle2, 
@@ -16,11 +16,22 @@ import {
   UtensilsCrossed, 
   Ticket, 
   QrCode,
-  FileText
+  FileText,
+  Store,
+  UserPlus,
+  LogIn,
+  MapPin,
+  User,
+  Phone,
+  ShieldCheck,
+  Sliders,
+  Bluetooth,
+  Lock,
+  TrendingUp,
+  IndianRupee
 } from 'lucide-react';
 import { PrintJob, ShopAccount } from '../../server';
 import { triggerVibration, playPrinterSoundEffect } from '../utils/escpos';
-import { Store, UserPlus, LogIn, MapPin, User, Phone, ShieldCheck, Sliders } from 'lucide-react';
 
 interface QueueManagerProps {
   jobs: PrintJob[];
@@ -35,7 +46,8 @@ interface QueueManagerProps {
   soundEnabled: boolean;
   currentShop: ShopAccount | null;
   onOpenShopAuth: (mode: 'register' | 'login') => void;
-  onOpenShopPanelTab: (tab: 'detail' | 'password' | 'upi' | 'rates' | 'customer_qr') => void;
+  onOpenShopPanelTab: (tab: 'detail' | 'password' | 'upi' | 'rates' | 'customer_qr' | 'printer_bt') => void;
+  onOpenPrintersTab: () => void;
 }
 
 export const QueueManager: React.FC<QueueManagerProps> = ({
@@ -52,8 +64,33 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
   currentShop,
   onOpenShopAuth,
   onOpenShopPanelTab,
+  onOpenPrintersTab,
 }) => {
   const [filter, setFilter] = useState<'all' | 'pending' | 'printed'>('all');
+  const [dailyStats, setDailyStats] = useState<{
+    todayDate: string;
+    totalCollection: number;
+    totalJobs: number;
+    bwPages: number;
+    colourPages: number;
+    razorpayOnline: number;
+  } | null>(null);
+
+  // Fetch live daily collection stats from backend
+  const fetchDailyStats = () => {
+    fetch('/api/shops/daily-collection')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.dailyStats) {
+          setDailyStats(data.dailyStats);
+        }
+      })
+      .catch(err => console.error('Failed to load daily stats:', err));
+  };
+
+  useEffect(() => {
+    fetchDailyStats();
+  }, [currentShop, jobs.length]);
 
   const pendingJobs = jobs.filter(j => j.status === 'pending');
   const printedJobs = jobs.filter(j => j.status === 'printed');
@@ -91,12 +128,56 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
   };
 
   const handleExecuteAll = () => {
+    if (!currentShop) {
+      onOpenShopAuth('login');
+      return;
+    }
     if (pendingJobs.length === 0) return;
     pendingJobs.forEach((job, index) => {
       setTimeout(() => {
         onExecuteJob(job);
       }, index * 800);
     });
+  };
+
+  const handleExecuteJobSafe = (job: PrintJob) => {
+    if (!currentShop) {
+      onOpenShopAuth('login');
+      return;
+    }
+    onExecuteJob(job);
+  };
+
+  const handleSimulateSafe = () => {
+    if (!currentShop) {
+      onOpenShopAuth('login');
+      return;
+    }
+    onSimulateIncoming();
+  };
+
+  const handleNewJobSafe = () => {
+    if (!currentShop) {
+      onOpenShopAuth('login');
+      return;
+    }
+    onOpenNewJobModal();
+  };
+
+  const handleDeleteJobSafe = (id: string) => {
+    if (!currentShop) {
+      onOpenShopAuth('login');
+      return;
+    }
+    onDeleteJob(id);
+  };
+
+  const handleClearCompletedSafe = () => {
+    if (!currentShop) {
+      onOpenShopAuth('login');
+      return;
+    }
+    onClearCompleted();
   };
 
   return (
@@ -181,50 +262,138 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
               className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700 hover:border-sky-500"
             >
               <Sliders className="w-3.5 h-3.5 text-sky-400" />
-              <span>4. Customer Rates (B&W/Colour/PDF)</span>
+              <span>4. Customer Rates</span>
             </button>
 
             <button
               onClick={() => onOpenShopPanelTab('customer_qr')}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black transition shadow-md shadow-amber-500/25 active:scale-95"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black transition shadow-md shadow-amber-500/25 active:scale-95"
             >
               <QrCode className="w-4 h-4 text-slate-950" />
               <span>5. QR FOR CUSTOMER ★</span>
             </button>
+
+            <button
+              onClick={() => onOpenShopPanelTab('printer_bt')}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 hover:text-white text-xs font-bold transition border border-indigo-500/50 hover:border-indigo-400 shadow-md active:scale-95"
+            >
+              <Bluetooth className="w-4 h-4 text-indigo-400" />
+              <span>6. Printer & Bluetooth 🖨️</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Daily Collection Dashboard on Active Shop Banner */}
+        <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-sky-950/60 border border-emerald-500/40 rounded-2xl p-4 shadow-lg flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-white">Today&apos;s Daily Collection (Aaj Ki Kamai)</span>
+                <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded px-1.5 py-0.5">
+                  {dailyStats?.todayDate || 'Today'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Real Print Orders Only • Zero Fake Jobs • Razorpay Auto-Verified
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
+            <div className="text-right sm:text-left bg-slate-950/80 px-3.5 py-2 rounded-xl border border-emerald-500/30">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Collection</span>
+              <span className="text-xl font-black text-emerald-400 font-mono">
+                ₹{dailyStats?.totalCollection ? dailyStats.totalCollection.toFixed(2) : '0.00'}
+              </span>
+            </div>
+
+            <div className="bg-slate-950/80 px-3 py-2 rounded-xl border border-slate-800 text-center">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Real Jobs</span>
+              <span className="text-base font-bold text-white font-mono">
+                {dailyStats?.totalJobs ?? printedJobs.length}
+              </span>
+            </div>
+
+            <div className="bg-slate-950/80 px-3 py-2 rounded-xl border border-slate-800 text-center">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Pages (B&W/Col)</span>
+              <span className="text-base font-bold text-sky-400 font-mono">
+                {dailyStats?.bwPages ?? 0} / {dailyStats?.colourPages ?? 0}
+              </span>
+            </div>
+
+            <div className="bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 text-right sm:text-left">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Razorpay Online</span>
+              <span className="text-base font-bold text-emerald-300 font-mono">
+                ₹{dailyStats?.razorpayOnline ? dailyStats.razorpayOnline.toFixed(2) : '0.00'}
+              </span>
+            </div>
           </div>
         </div>
         </>
       ) : (
-        <div className="bg-gradient-to-r from-sky-950/80 via-slate-900 to-indigo-950/80 border-2 border-sky-500/30 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-wrap items-center justify-between gap-4">
-          <div className="max-w-xl space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400">
-                <Store className="w-5 h-5" />
+        <div className="space-y-4">
+          <div className="bg-gradient-to-r from-sky-950/80 via-slate-900 to-indigo-950/80 border-2 border-sky-500/30 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+            <div className="max-w-xl space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400">
+                  <Store className="w-5 h-5" />
+                </div>
+                <h3 className="text-base sm:text-lg font-bold text-white">
+                  Shop Registration & Shop Login
+                </h3>
               </div>
-              <h3 className="text-base sm:text-lg font-bold text-white">
-                Shop Registration & Shop Login
-              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Apni dukan register karein aur Mobile Number se auto-fill hone wale Login ID ke sath login karke real-time printing aur printer setup chalu karein!
+              </p>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Apni dukan register karein (Shop Name, 10-digit Mobile Number, Owner Name, Address) aur Mobile Number se auto-fill hone wale Login ID ke sath login karke real-time printing chalu karein!
-            </p>
+
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <button
+                onClick={() => onOpenShopAuth('register')}
+                className="flex items-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:scale-95 text-white font-bold text-xs sm:text-sm px-5 py-2.5 rounded-2xl shadow-lg shadow-sky-500/30 transition"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Shop Registration</span>
+              </button>
+
+              <button
+                onClick={() => onOpenShopAuth('login')}
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-100 hover:text-white font-bold text-xs sm:text-sm px-5 py-2.5 rounded-2xl border border-slate-700 shadow-md transition"
+              >
+                <LogIn className="w-4 h-4 text-sky-400" />
+                <span>Shop Login</span>
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <button
-              onClick={() => onOpenShopAuth('register')}
-              className="flex items-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:scale-95 text-white font-bold text-xs sm:text-sm px-5 py-2.5 rounded-2xl shadow-lg shadow-sky-500/30 transition"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>Shop Registration</span>
-            </button>
+          {/* Explicit View-Only Banner on Home Page */}
+          <div className="bg-gradient-to-r from-amber-950/50 via-slate-900 to-slate-950 border border-amber-500/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-bold text-amber-300 flex items-center gap-2">
+                  <span>Home Screen: Preview & View-Only Mode</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
+                    👀 View-Only
+                  </span>
+                </div>
+                <p className="text-slate-400 text-[11px] mt-0.5">
+                  Home screen par sirf view hoga. Dukan login karne ke baad sabhi kaam (print execution, add printer with USB/WiFi/BT, create bills) unlock honge!
+                </p>
+              </div>
+            </div>
 
             <button
               onClick={() => onOpenShopAuth('login')}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-100 hover:text-white font-bold text-xs sm:text-sm px-5 py-2.5 rounded-2xl border border-slate-700 shadow-md transition"
+              className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md transition active:scale-95 flex items-center gap-1.5"
             >
-              <LogIn className="w-4 h-4 text-sky-400" />
-              <span>Shop Login</span>
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Login to Unlock</span>
             </button>
           </div>
         </div>
@@ -317,13 +486,13 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Simulate incoming live POS order */}
+          {/* Customer Self-Service QR button */}
           <button
-            onClick={onSimulateIncoming}
-            className="flex items-center gap-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 active:scale-95 text-white font-semibold text-xs px-3.5 py-2 rounded-xl shadow-md transition"
+            onClick={() => onOpenShopPanelTab('customer_qr')}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-95 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-xl shadow-md shadow-amber-500/20 transition"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Simulate POS Order</span>
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Customer Print QR</span>
           </button>
 
           {/* Execute All Pending */}
@@ -332,24 +501,24 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
               onClick={handleExecuteAll}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-semibold text-xs px-3.5 py-2 rounded-xl shadow-md transition"
             >
-              <Play className="w-3.5 h-3.5 fill-white" />
+              {currentShop ? <Play className="w-3.5 h-3.5 fill-white" /> : <Lock className="w-3.5 h-3.5 text-emerald-200" />}
               <span>Execute All ({pendingJobs.length})</span>
             </button>
           )}
 
-          {/* Create custom test bill */}
+          {/* Create custom real bill */}
           <button
-            onClick={onOpenNewJobModal}
+            onClick={handleNewJobSafe}
             className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-semibold text-xs px-3.5 py-2 rounded-xl shadow-md transition"
           >
-            <Plus className="w-3.5 h-3.5" />
+            {currentShop ? <Plus className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-sky-200" />}
             <span>New Custom Job</span>
           </button>
 
           {/* Clear completed */}
           {printedJobs.length > 0 && (
             <button
-              onClick={onClearCompleted}
+              onClick={handleClearCompletedSafe}
               title="Clear completed print jobs from memory"
               className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-700 text-slate-400 hover:text-rose-400 border border-slate-800 transition"
             >
@@ -365,17 +534,26 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
           <div className="w-14 h-14 rounded-2xl bg-slate-800 flex items-center justify-center text-slate-500 mx-auto">
             <Printer className="w-7 h-7" />
           </div>
-          <h3 className="text-base font-semibold text-slate-300">No print jobs in this view</h3>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Click &ldquo;Simulate POS Order&rdquo; to send a mock order from backend or create a custom bill.
+          <h3 className="text-base font-semibold text-white">No print jobs in queue</h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+            Real-time queue is live. Customer orders scan & print hone par yahan turant aate hain. Fake print jobs disabled hain.
           </p>
-          <button
-            onClick={onSimulateIncoming}
-            className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs px-4 py-2 rounded-xl transition"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Generate Test Order</span>
-          </button>
+          <div className="pt-2 flex justify-center gap-3">
+            <button
+              onClick={handleNewJobSafe}
+              className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-md active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Create Counter Job</span>
+            </button>
+            <button
+              onClick={() => onOpenShopPanelTab('customer_qr')}
+              className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs px-4 py-2.5 rounded-xl border border-amber-500/30 transition shadow-md active:scale-95"
+            >
+              <QrCode className="w-4 h-4 text-amber-400" />
+              <span>Show Customer QR</span>
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -484,7 +662,7 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
                       <span>Simulate</span>
                     </button>
                     <button
-                      onClick={() => onDeleteJob(job.id)}
+                      onClick={() => handleDeleteJobSafe(job.id)}
                       title="Delete job"
                       className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 transition border border-slate-700"
                     >
@@ -493,15 +671,25 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
                   </div>
 
                   <button
-                    onClick={() => onExecuteJob(job)}
+                    onClick={() => handleExecuteJobSafe(job)}
                     className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition active:scale-95 shadow-md ${
                       isPending
                         ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white shadow-emerald-600/30'
                         : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
                     }`}
                   >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>{isPending ? 'Print Now (Execute)' : 'Reprint'}</span>
+                    {currentShop ? (
+                      <Printer className="w-3.5 h-3.5" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5 text-amber-300" />
+                    )}
+                    <span>
+                      {!currentShop
+                        ? 'Login to Print'
+                        : isPending
+                          ? 'Print Now (Execute)'
+                          : 'Reprint'}
+                    </span>
                   </button>
                 </div>
               </div>

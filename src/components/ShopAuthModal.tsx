@@ -13,7 +13,11 @@ import {
   ArrowRight,
   ShieldCheck,
   LogIn,
-  UserPlus
+  UserPlus,
+  Receipt,
+  IndianRupee,
+  TrendingUp,
+  Printer
 } from 'lucide-react';
 import { ShopAccount } from '../../server';
 
@@ -49,12 +53,32 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Synchronize initial mode when modal opens
+  // Live Daily Collection Stats for Shopkeeper
+  const [dailyStats, setDailyStats] = useState<{
+    todayDate: string;
+    totalCollection: number;
+    totalJobs: number;
+    bwPages: number;
+    colourPages: number;
+    razorpayOnline: number;
+  } | null>(null);
+
+  // Synchronize initial mode when modal opens & fetch daily stats
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
       setErrorMessage(null);
       setSuccessMessage(null);
+
+      // Fetch live daily collection stats from backend
+      fetch('/api/shops/daily-collection')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.dailyStats) {
+            setDailyStats(data.dailyStats);
+          }
+        })
+        .catch(err => console.error('Failed to load daily stats:', err));
     }
   }, [isOpen, initialMode]);
 
@@ -440,6 +464,56 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
         ) : (
           /* ================= SHOP LOGIN FORM ================= */
           <form onSubmit={handleLoginSubmit} className="p-4 sm:p-6 space-y-4 text-xs">
+            {/* Live Daily Collection Card on Shop Login Page */}
+            {dailyStats && (
+              <div className="bg-gradient-to-r from-emerald-950/70 via-slate-950 to-slate-900 border border-emerald-500/40 rounded-2xl p-3.5 space-y-2.5 shadow-lg">
+                <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                      <TrendingUp className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span>Today&apos;s Daily Collection</span>
+                        <span className="text-[10px] text-emerald-400 font-mono">({dailyStats.todayDate})</span>
+                      </h4>
+                      <p className="text-[10px] text-slate-400">Real Counter Revenue & Print Jobs</p>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] text-emerald-400 font-bold block uppercase">Total Collection</span>
+                    <span className="text-base font-black text-emerald-400 font-mono">
+                      ₹{dailyStats.totalCollection.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                  <div className="bg-slate-900/80 p-1.5 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 block text-[10px]">Total Jobs</span>
+                    <span className="font-bold text-white font-mono">{dailyStats.totalJobs}</span>
+                  </div>
+                  <div className="bg-slate-900/80 p-1.5 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 block text-[10px]">Pages (B&W/Col)</span>
+                    <span className="font-bold text-sky-400 font-mono">{dailyStats.bwPages} / {dailyStats.colourPages}</span>
+                  </div>
+                  <div className="bg-slate-900/80 p-1.5 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 block text-[10px]">Razorpay Online</span>
+                    <span className="font-bold text-emerald-400 font-mono">₹{dailyStats.razorpayOnline.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                  <span className="flex items-center gap-1 text-emerald-300 font-medium">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <span>Real Print Jobs Only (Zero Fake Jobs)</span>
+                  </span>
+                  <span className="text-slate-500">Live Server Sync</span>
+                </div>
+              </div>
+            )}
+
             {/* Login ID (Mobile Number) */}
             <div>
               <div className="flex items-center justify-between mb-1">

@@ -13,6 +13,8 @@ import { NewJobModal } from './components/NewJobModal';
 import { ShopAuthModal } from './components/ShopAuthModal';
 import { ShopManagementModal } from './components/ShopManagementModal';
 import { CustomerPortal } from './components/CustomerPortal';
+import { AdminPanelModal } from './components/AdminPanelModal';
+import { Footer } from './components/Footer';
 import { PrintJob, PrinterDevice, ShopAccount } from '../server';
 import { 
   playPrinterSoundEffect, 
@@ -30,10 +32,11 @@ export default function App() {
   const [showShopModal, setShowShopModal] = useState<boolean>(false);
   const [shopModalMode, setShopModalMode] = useState<'register' | 'login'>('register');
   const [showShopPanelModal, setShowShopPanelModal] = useState<boolean>(false);
-  const [shopPanelInitialTab, setShopPanelInitialTab] = useState<'detail' | 'password' | 'upi' | 'rates' | 'customer_qr'>('detail');
+  const [shopPanelInitialTab, setShopPanelInitialTab] = useState<'detail' | 'password' | 'upi' | 'rates' | 'customer_qr' | 'printer_bt'>('detail');
+  const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'agent' | 'customer'>('agent');
   const [customerShopId, setCustomerShopId] = useState<string>('current');
-  const [activePrinterId, setActivePrinterId] = useState<string>('prn-bt-01');
+  const [activePrinterId, setActivePrinterId] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [autoPrint, setAutoPrint] = useState<boolean>(true);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -134,7 +137,7 @@ export default function App() {
     }
   };
 
-  const handleOpenShopPanelTab = (tab: 'detail' | 'password' | 'upi' | 'rates' | 'customer_qr') => {
+  const handleOpenShopPanelTab = (tab: 'detail' | 'password' | 'upi' | 'rates' | 'customer_qr' | 'printer_bt') => {
     setShopPanelInitialTab(tab);
     setShowShopPanelModal(true);
   };
@@ -289,13 +292,62 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setPrinters(prev => [...prev, data.printer]);
-        if (data.printer.isDefault) {
+        if (data.printer.isDefault || printers.length === 0) {
           setActivePrinterId(data.printer.id);
         }
-        showToast(`Printer ${data.printer.name} added!`, 'success');
+        showToast(`Printer "${data.printer.name}" added successfully!`, 'success');
       }
     } catch (err) {
       console.error('Add printer error:', err);
+    }
+  };
+
+  // Delete printer
+  const handleDeletePrinter = async (id: string) => {
+    try {
+      const res = await fetch(`/api/printers/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setPrinters(prev => prev.filter(p => p.id !== id));
+        if (activePrinterId === id) {
+          const remaining = printers.filter(p => p.id !== id);
+          if (remaining.length > 0) setActivePrinterId(remaining[0].id);
+          else setActivePrinterId('');
+        }
+        showToast('Printer removed', 'info');
+      }
+    } catch (err) {
+      console.error('Delete printer error:', err);
+    }
+  };
+
+  // Set default printer
+  const handleSetDefaultPrinter = async (id: string) => {
+    try {
+      const res = await fetch(`/api/printers/${id}/default`, { method: 'PATCH' });
+      const data = await res.json();
+      if (data.success) {
+        setPrinters(prev => prev.map(p => ({ ...p, isDefault: p.id === id })));
+        setActivePrinterId(id);
+        showToast('Default printer set', 'success');
+      }
+    } catch (err) {
+      console.error('Set default printer error:', err);
+    }
+  };
+
+  // Clear all printers
+  const handleClearAllPrinters = async () => {
+    try {
+      const res = await fetch('/api/printers', { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setPrinters([]);
+        setActivePrinterId('');
+        showToast('All printers deleted', 'info');
+      }
+    } catch (err) {
+      console.error('Clear all printers error:', err);
     }
   };
 
@@ -325,7 +377,7 @@ export default function App() {
   };
 
   const activePrinter = printers.find(p => p.id === activePrinterId);
-  const activePrinterName = activePrinter ? activePrinter.name : 'Shashi BT Thermal 58mm';
+  const activePrinterName = activePrinter ? activePrinter.name : 'No Printer Connected (Add USB/WiFi)';
   const pendingCount = jobs.filter(j => j.status === 'pending').length;
 
   // If in Customer Scan Mode, render the dedicated Customer Portal
@@ -355,6 +407,8 @@ export default function App() {
         onChangeTab={tab => {
           if (tab === 'new-job') {
             setShowNewJobModal(true);
+          } else if (tab === 'printers') {
+            handleOpenShopPanelTab('printer_bt');
           } else {
             setActiveTab(tab);
           }
@@ -364,6 +418,7 @@ export default function App() {
         onLogoutShop={handleLogoutShop}
         onOpenShopPanel={() => handleOpenShopPanelTab('detail')}
         onOpenCustomerPortal={() => handleOpenCustomerPortal(currentShop?.id || 'current')}
+        onOpenAdminPanel={() => setShowAdminModal(true)}
       />
 
       {/* Floating Status Notification Toast */}
@@ -400,6 +455,7 @@ export default function App() {
             currentShop={currentShop}
             onOpenShopAuth={handleOpenShopAuth}
             onOpenShopPanelTab={handleOpenShopPanelTab}
+            onOpenPrintersTab={() => handleOpenShopPanelTab('printer_bt')}
           />
         )}
 
@@ -423,10 +479,26 @@ export default function App() {
               showToast('Active printer updated', 'success');
             }}
             onAddPrinter={handleAddPrinter}
+            onDeletePrinter={handleDeletePrinter}
+            onSetDefaultPrinter={handleSetDefaultPrinter}
+            onClearAllPrinters={handleClearAllPrinters}
             soundEnabled={soundEnabled}
           />
         )}
       </main>
+
+      {/* Feature-Rich Home Page Footer (Quick link, Contact us, About, Powered by Shashi ranjan 70% opacity) */}
+      <Footer
+        currentShop={currentShop}
+        onOpenShopAuth={handleOpenShopAuth}
+        onOpenShopPanel={() => {
+          setShopPanelInitialTab('detail');
+          setShowShopPanelModal(true);
+        }}
+        onOpenAdminPanel={() => setShowAdminModal(true)}
+        onOpenApkModal={() => setShowApkModal(true)}
+        onChangeTab={setActiveTab}
+      />
 
       {/* Persistent Mobile Bottom Status Footer */}
       <footer className="fixed bottom-0 inset-x-0 bg-slate-900/95 border-t border-slate-800 text-xs px-4 py-2 flex items-center justify-between z-30 backdrop-blur-sm">
@@ -478,10 +550,11 @@ export default function App() {
         }}
       />
 
-      {/* Shop Management Panel (Shop Detail, Change Password, UPI ID & QR, Customer Rates, QR FOR CUSTOMER) */}
+      {/* Shop Management Panel (Shop Detail, Change Password, UPI ID & QR, Customer Rates, QR FOR CUSTOMER, Printer & Bluetooth) */}
       {currentShop && (
         <ShopManagementModal
           isOpen={showShopPanelModal}
+          initialTab={shopPanelInitialTab}
           onClose={() => setShowShopPanelModal(false)}
           shop={currentShop}
           onShopUpdated={updatedShop => {
@@ -489,8 +562,29 @@ export default function App() {
             showToast('Shop details updated!', 'success');
           }}
           onOpenCustomerPortal={id => handleOpenCustomerPortal(id)}
+          printers={printers}
+          activePrinterId={activePrinterId}
+          onSelectActivePrinter={id => {
+            setActivePrinterId(id);
+            showToast('Active printer updated', 'success');
+          }}
+          onAddPrinter={handleAddPrinter}
+          onDeletePrinter={handleDeletePrinter}
+          onSetDefaultPrinter={handleSetDefaultPrinter}
+          onClearAllPrinters={handleClearAllPrinters}
+          soundEnabled={soundEnabled}
         />
       )}
+
+      {/* Super Admin Control Panel (All Shops, Add/Remove Shop, Change Admin Password) */}
+      <AdminPanelModal
+        isOpen={showAdminModal}
+        onClose={() => setShowAdminModal(false)}
+        onShopDeletedOrAdded={() => {
+          fetchJobs();
+          fetchCurrentShop();
+        }}
+      />
     </div>
   );
 }
