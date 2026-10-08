@@ -1,0 +1,6 @@
+{
+  "name": "Shashi Print Agent",
+  "description": "Mobile Print Agent for Android APK and PWA with real-time backend print job fetching, ESC/POS Bluetooth, USB & Network thermal printer command execution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
