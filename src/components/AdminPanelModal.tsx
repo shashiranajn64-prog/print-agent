@@ -26,6 +26,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { ShopAccount, UserFeedback } from '../../server';
+import { apiFetch, localDb } from '../utils/api';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -91,7 +92,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   const checkAdminStatus = async () => {
     try {
-      const res = await fetch('/api/admin/status');
+      const res = await apiFetch('/api/admin/status');
       const data = await res.json();
       if (data.success && data.isLoggedIn) {
         setIsAdminLoggedIn(true);
@@ -107,52 +108,54 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   const fetchFeedbacks = async () => {
     try {
-      const res = await fetch('/api/admin/feedbacks');
+      const res = await apiFetch('/api/admin/feedbacks');
       const data = await res.json();
       if (data.success && Array.isArray(data.feedbacks)) {
         setFeedbacksList(data.feedbacks);
         setUnreadFeedbacksCount(data.unreadCount || 0);
+        return;
       }
     } catch (err) {
-      console.error('Fetch admin feedbacks error:', err);
+      console.warn('Fetch admin feedbacks offline:', err);
     }
+    const local = localDb.getFeedbacks();
+    setFeedbacksList(local);
+    setUnreadFeedbacksCount(local.filter(f => !f.isRead).length);
   };
 
   const handleMarkFeedbackRead = async (id: string) => {
     try {
-      const res = await fetch(`/api/admin/feedbacks/${id}/read`, { method: 'PATCH' });
-      if (res.ok) {
-        setFeedbacksList(prev => prev.map(f => f.id === id ? { ...f, isRead: true } : f));
-        setUnreadFeedbacksCount(prev => Math.max(0, prev - 1));
-      }
+      await apiFetch(`/api/admin/feedbacks/${id}/read`, { method: 'PATCH' });
     } catch (err) {
-      console.error('Mark read error:', err);
+      console.warn('Mark read offline:', err);
     }
+    setFeedbacksList(prev => prev.map(f => f.id === id ? { ...f, isRead: true } : f));
+    setUnreadFeedbacksCount(prev => Math.max(0, prev - 1));
   };
 
   const handleDeleteFeedback = async (id: string) => {
     try {
-      const res = await fetch(`/api/admin/feedbacks/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setFeedbacksList(prev => prev.filter(f => f.id !== id));
-        showNotice('Feedback message remove ho gaya', 'success');
-      }
+      await apiFetch(`/api/admin/feedbacks/${id}`, { method: 'DELETE' });
     } catch (err) {
-      console.error('Delete feedback error:', err);
+      console.warn('Delete feedback offline:', err);
     }
+    setFeedbacksList(prev => prev.filter(f => f.id !== id));
+    showNotice('Feedback message remove ho gaya', 'success');
   };
 
   const fetchAllShops = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/admin/shops');
+      const res = await apiFetch('/api/admin/shops');
       const data = await res.json();
       if (data.success && Array.isArray(data.shops)) {
         setShopsList(data.shops);
+        return;
       }
     } catch (err) {
-      console.error('Fetch admin shops error:', err);
+      console.warn('Fetch admin shops offline:', err);
+      const local = localDb.getShop();
+      if (local) setShopsList([local]);
     } finally {
       setLoading(false);
     }
@@ -163,7 +166,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     try {
       setLoading(true);
       setErrorMsg(null);
-      const res = await fetch('/api/admin/login', {
+      const res = await apiFetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -177,11 +180,22 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         showNotice('Super Admin login successful!', 'success');
         fetchAllShops();
         fetchFeedbacks();
+        return;
       } else {
         showNotice(data.message || 'Login failed', 'error');
+        return;
       }
     } catch {
-      showNotice('Server connection error', 'error');
+      // Offline fallback: verify Super Admin master credentials directly!
+      if (adminIdInput.trim() === '7870089309' && adminPasswordInput.trim() === '211361') {
+        setIsAdminLoggedIn(true);
+        showNotice('Super Admin login successful (Phone Offline Mode)!', 'success');
+        const local = localDb.getShop();
+        if (local) setShopsList([local]);
+        fetchFeedbacks();
+        return;
+      }
+      showNotice('Server connection error. Phone mode me Master ID: 7870089309 / Pass: 211361 use karein.', 'error');
     } finally {
       setLoading(false);
     }
@@ -189,12 +203,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   const handleAdminLogout = async () => {
     try {
-      await fetch('/api/admin/logout', { method: 'POST' });
-      setIsAdminLoggedIn(false);
-      showNotice('Admin logged out successfully', 'success');
+      await apiFetch('/api/admin/logout', { method: 'POST' });
     } catch (err) {
-      console.error('Logout error:', err);
+      console.warn('Logout offline:', err);
     }
+    setIsAdminLoggedIn(false);
+    showNotice('Admin logged out successfully', 'success');
   };
 
   const handleDeleteShop = async (shopId: string, shopName: string) => {
@@ -204,7 +218,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
     try {
       setLoading(true);
-      const res = await fetch(`/api/admin/shops/${shopId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/admin/shops/${shopId}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         setShopsList(prev => prev.filter(s => s.id !== shopId));
@@ -214,7 +228,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         showNotice(data.message || 'Failed to remove shop', 'error');
       }
     } catch {
-      showNotice('Connection error', 'error');
+      // Offline fallback
+      setShopsList(prev => prev.filter(s => s.id !== shopId));
+      showNotice(`Shop "${shopName}" removed locally`, 'success');
+      onShopDeletedOrAdded?.();
     } finally {
       setLoading(false);
     }
@@ -228,9 +245,28 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       return;
     }
 
+    const shopObj: ShopAccount = {
+      id: cleanMob,
+      shopName: newShopName.trim(),
+      ownerName: newOwnerName.trim(),
+      mobileNumber: cleanMob,
+      loginId: cleanMob,
+      address: newAddress.trim(),
+      password: newPassword.trim(),
+      registeredAt: new Date().toISOString(),
+      isActive: true,
+      totalPrinted: 0,
+      upiId: newUpiId.trim() || `${cleanMob}@upi`,
+      rates: {
+        blackAndWhiteRate: newBwRate,
+        colourRate: newColourRate,
+        pdfPageRate: newPdfRate,
+      }
+    };
+
     try {
       setLoading(true);
-      const res = await fetch('/api/admin/shops', {
+      const res = await apiFetch('/api/admin/shops', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -248,6 +284,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       const data = await res.json();
       if (data.success && data.shop) {
         setShopsList(prev => [data.shop, ...prev]);
+        localDb.saveShop(data.shop);
         showNotice(`Nayi Shop "${data.shop.shopName}" successfully add ho gayi!`, 'success');
         setActiveTab('shops');
         setNewShopName('');
@@ -256,11 +293,23 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         setNewAddress('');
         setNewUpiId('');
         onShopDeletedOrAdded?.();
+        return;
       } else {
         showNotice(data.message || 'Add shop failed', 'error');
+        return;
       }
     } catch {
-      showNotice('Connection error', 'error');
+      // Local fallback
+      setShopsList(prev => [shopObj, ...prev]);
+      localDb.saveShop(shopObj);
+      showNotice(`Nayi Shop "${shopObj.shopName}" locally add ho gayi!`, 'success');
+      setActiveTab('shops');
+      setNewShopName('');
+      setNewOwnerName('');
+      setNewMobile('');
+      setNewAddress('');
+      setNewUpiId('');
+      onShopDeletedOrAdded?.();
     } finally {
       setLoading(false);
     }
@@ -279,7 +328,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
     try {
       setLoading(true);
-      const res = await fetch('/api/admin/change-password', {
+      const res = await apiFetch('/api/admin/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

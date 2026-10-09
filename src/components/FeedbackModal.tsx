@@ -14,6 +14,8 @@ import {
   ThumbsUp,
   Bug
 } from 'lucide-react';
+import { apiFetch, localDb } from '../utils/api';
+import { UserFeedback } from '../../server';
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -48,31 +50,39 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
       return;
     }
 
+    const fbData: UserFeedback = {
+      id: `fb_${Date.now()}`,
+      senderName: senderName.trim() || 'Anonymous User',
+      senderContact: senderContact.trim() || undefined,
+      shopName: shopName.trim() || undefined,
+      category,
+      rating,
+      message: message.trim(),
+      createdAt: new Date().toISOString(),
+      isRead: false
+    };
+
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/feedbacks', {
+      const res = await apiFetch('/api/feedbacks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          senderName: senderName.trim() || 'Anonymous User',
-          senderContact: senderContact.trim() || undefined,
-          shopName: shopName.trim() || undefined,
-          category,
-          rating,
-          message: message.trim()
-        })
+        body: JSON.stringify(fbData)
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
+        localDb.addFeedback(data.feedback || fbData);
         setIsSuccess(true);
         if (onFeedbackSubmitted) onFeedbackSubmitted();
-      } else {
-        setError(data.message || 'Feedback send nahi ho paya. Dobara koshish karein.');
+        return;
       }
     } catch {
-      setError('Server connection error. Kripya thodi der baad koshish karein.');
+      // Local fallback
+      localDb.addFeedback(fbData);
+      setIsSuccess(true);
+      if (onFeedbackSubmitted) onFeedbackSubmitted();
     } finally {
       setLoading(false);
     }

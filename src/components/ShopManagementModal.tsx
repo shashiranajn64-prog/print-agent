@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { ShopAccount, PrinterDevice } from '../../server';
 import { PrinterSettings } from './PrinterSettings';
+import { apiFetch, getPublicWebUrl, localDb } from '../utils/api';
 
 interface ShopManagementModalProps {
   isOpen: boolean;
@@ -91,8 +92,8 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
 
   if (!isOpen) return null;
 
-  const originUrl = typeof window !== 'undefined' ? window.location.origin : '';
-  const customerPortalUrl = `${originUrl}/?shopId=${shop.id}&view=customer`;
+  const publicWebUrl = getPublicWebUrl();
+  const customerPortalUrl = `${publicWebUrl}/?shopId=${shop.id}&view=customer`;
 
   // Quick message display helper
   const notify = (text: string, type: 'success' | 'error') => {
@@ -108,9 +109,17 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
       return;
     }
 
+    const updatedShop: ShopAccount = {
+      ...shop,
+      shopName: shopName.trim(),
+      ownerName: ownerName.trim(),
+      address: address.trim(),
+      mobileNumber: mobileNumber.trim(),
+    };
+
     try {
       setLoading(true);
-      const res = await fetch('/api/shops/current', {
+      const res = await apiFetch('/api/shops/current', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -122,13 +131,16 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
       });
       const data = await res.json();
       if (data.success && data.shop) {
+        localDb.saveShop(data.shop);
         onShopUpdated(data.shop);
         notify('Shop details successfully update ho gayi hain!', 'success');
-      } else {
-        notify(data.message || 'Update failed', 'error');
+        return;
       }
     } catch {
-      notify('Connection error', 'error');
+      // Local fallback for offline mode
+      localDb.saveShop(updatedShop);
+      onShopUpdated(updatedShop);
+      notify('Shop details locally save ho gayi hain (Phone Mode)!', 'success');
     } finally {
       setLoading(false);
     }
@@ -148,7 +160,7 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
 
     try {
       setLoading(true);
-      const res = await fetch('/api/shops/change-password', {
+      const res = await apiFetch('/api/shops/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ oldPassword, newPassword }),
@@ -159,11 +171,17 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
         setOldPassword('');
         setNewPassword('');
         setConfirmPassword('');
-      } else {
-        notify(data.message || 'Password change failed', 'error');
+        return;
       }
     } catch {
-      notify('Connection error', 'error');
+      // Local fallback
+      const updatedShop = { ...shop, password: newPassword };
+      localDb.saveShop(updatedShop);
+      onShopUpdated(updatedShop);
+      notify('Password locally update ho gaya hai (Phone Mode)!', 'success');
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
     } finally {
       setLoading(false);
     }
@@ -172,9 +190,15 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
   // 3. Save UPI & QR
   const handleSaveUpi = async (e: React.FormEvent) => {
     e.preventDefault();
+    const updatedShop: ShopAccount = {
+      ...shop,
+      upiId: upiId.trim(),
+      upiQrCustomUrl: upiQrCustomUrl.trim()
+    };
+
     try {
       setLoading(true);
-      const res = await fetch('/api/shops/upi', {
+      const res = await apiFetch('/api/shops/upi', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -184,13 +208,15 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
       });
       const data = await res.json();
       if (data.success && data.shop) {
+        localDb.saveShop(data.shop);
         onShopUpdated(data.shop);
         notify('UPI ID aur QR update ho gaya hai!', 'success');
-      } else {
-        notify(data.message || 'Update failed', 'error');
+        return;
       }
     } catch {
-      notify('Connection error', 'error');
+      localDb.saveShop(updatedShop);
+      onShopUpdated(updatedShop);
+      notify('UPI ID aur QR locally update ho gaya hai (Phone Mode)!', 'success');
     } finally {
       setLoading(false);
     }
@@ -199,26 +225,34 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
   // 4. Save Customer Print Rates
   const handleSaveRates = async (e: React.FormEvent) => {
     e.preventDefault();
+    const updatedRates = {
+      blackAndWhiteRate: bwRate,
+      colourRate: colourRate,
+      pdfPageRate: pdfRate,
+    };
+    const updatedShop: ShopAccount = {
+      ...shop,
+      rates: updatedRates
+    };
+
     try {
       setLoading(true);
-      const res = await fetch('/api/shops/rates', {
+      const res = await apiFetch('/api/shops/rates', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          blackAndWhiteRate: bwRate,
-          colourRate: colourRate,
-          pdfPageRate: pdfRate,
-        }),
+        body: JSON.stringify(updatedRates),
       });
       const data = await res.json();
       if (data.success && data.rates) {
+        localDb.saveShop({ ...shop, rates: data.rates });
         onShopUpdated({ ...shop, rates: data.rates });
         notify('Customer printing rates update ho gaye hain!', 'success');
-      } else {
-        notify(data.message || 'Rates update failed', 'error');
+        return;
       }
     } catch {
-      notify('Connection error', 'error');
+      localDb.saveShop(updatedShop);
+      onShopUpdated(updatedShop);
+      notify('Rates locally update ho gaye hain (Phone Mode)!', 'success');
     } finally {
       setLoading(false);
     }

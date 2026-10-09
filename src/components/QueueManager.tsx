@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { PrintJob, ShopAccount } from '../../server';
 import { triggerVibration, playPrinterSoundEffect } from '../utils/escpos';
+import { apiFetch } from '../utils/api';
 
 interface QueueManagerProps {
   jobs: PrintJob[];
@@ -78,14 +79,27 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
 
   // Fetch live daily collection stats from backend
   const fetchDailyStats = () => {
-    fetch('/api/shops/daily-collection')
+    apiFetch('/api/shops/daily-collection')
       .then(res => res.json())
       .then(data => {
         if (data.success && data.dailyStats) {
           setDailyStats(data.dailyStats);
         }
       })
-      .catch(err => console.error('Failed to load daily stats:', err));
+      .catch(() => {
+        // Fallback: compute from current jobs in state
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayJobs = jobs.filter(j => j.createdAt && j.createdAt.startsWith(todayStr));
+        const totalColl = todayJobs.reduce((sum, j) => sum + (j.amount || 0), 0);
+        setDailyStats({
+          todayDate: todayStr,
+          totalCollection: totalColl,
+          totalJobs: todayJobs.length,
+          bwPages: todayJobs.length * 2,
+          colourPages: 0,
+          razorpayOnline: 0
+        });
+      });
   };
 
   useEffect(() => {

@@ -17,9 +17,14 @@ import {
   Receipt,
   IndianRupee,
   TrendingUp,
-  Printer
+  Printer,
+  Smartphone,
+  Server,
+  Settings
 } from 'lucide-react';
 import { ShopAccount } from '../../server';
+import { apiFetch, localDb, setOfflineModeActive, isOfflineModeActive, isNativeApp } from '../utils/api';
+import { ServerSettingsModal } from './ServerSettingsModal';
 
 interface ShopAuthModalProps {
   isOpen: boolean;
@@ -52,6 +57,8 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isConnectionError, setIsConnectionError] = useState(false);
+  const [showServerModal, setShowServerModal] = useState(false);
 
   // Live Daily Collection Stats for Shopkeeper
   const [dailyStats, setDailyStats] = useState<{
@@ -69,28 +76,30 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
       setMode(initialMode);
       setErrorMessage(null);
       setSuccessMessage(null);
+      setIsConnectionError(false);
 
-      // Fetch live daily collection stats from backend
-      fetch('/api/shops/daily-collection')
+      // Fetch live daily collection stats
+      apiFetch('/api/shops/daily-collection')
         .then(res => res.json())
         .then(data => {
           if (data.success && data.dailyStats) {
             setDailyStats(data.dailyStats);
           }
         })
-        .catch(err => console.error('Failed to load daily stats:', err));
+        .catch(err => {
+          console.warn('Daily stats offline:', err);
+        });
     }
   }, [isOpen, initialMode]);
 
   // Handle Mobile Number input in registration: sanitize to digits only and limit to max 10 digits
   const handleMobileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawVal = e.target.value;
-    // Allow only numeric digits
     const digitsOnly = rawVal.replace(/\D/g, '');
-    // Strictly max 10 digits
     const sanitized = digitsOnly.slice(0, 10);
     setMobileNumber(sanitized);
     setErrorMessage(null);
+    setIsConnectionError(false);
   };
 
   // Handle Login ID change: sanitize to 10 digits
@@ -99,6 +108,48 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
     const digitsOnly = rawVal.replace(/\D/g, '').slice(0, 10);
     setLoginId(digitsOnly);
     setErrorMessage(null);
+    setIsConnectionError(false);
+  };
+
+  const handleContinueLocalMode = () => {
+    const existing = localDb.getShop();
+    const effectiveMobile = (mobileNumber || loginId || existing?.mobileNumber || '9876543210').trim();
+    const effectiveShopName = (shopName || existing?.shopName || 'Mera Print Counter').trim();
+    const effectiveOwner = (ownerName || existing?.ownerName || 'Shopkeeper').trim();
+    const effectiveAddress = (address || existing?.address || 'Counter 1').trim();
+    
+    const localShop: ShopAccount = existing ? {
+      ...existing,
+      shopName: effectiveShopName,
+      ownerName: effectiveOwner,
+      address: effectiveAddress,
+      mobileNumber: effectiveMobile,
+      loginId: effectiveMobile,
+    } : {
+      id: effectiveMobile,
+      shopName: effectiveShopName,
+      mobileNumber: effectiveMobile,
+      ownerName: effectiveOwner,
+      address: effectiveAddress,
+      loginId: effectiveMobile,
+      password: password || loginPassword || '1234',
+      registeredAt: new Date().toISOString(),
+      isActive: true,
+      totalPrinted: 0,
+      rates: {
+        blackAndWhiteRate: 3,
+        colourRate: 10,
+        pdfPageRate: 5
+      }
+    };
+
+    localDb.saveShop(localShop);
+    setOfflineModeActive(true);
+    setSuccessMessage('Phone Offline Mode active! Shop profile saved locally.');
+    setTimeout(() => {
+      onSuccess(localShop, mode);
+      onClose();
+    }, 700);
   };
 
   if (!isOpen) return null;
@@ -110,6 +161,7 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
+    setIsConnectionError(false);
 
     // Strict Validations
     if (!shopName.trim()) {
@@ -137,9 +189,14 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
       return;
     }
 
+    if (isOfflineModeActive()) {
+      handleContinueLocalMode();
+      return;
+    }
+
     try {
       setLoading(true);
-      const res = await fetch('/api/shops/register', {
+      const res = await apiFetch('/api/shops/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -158,6 +215,7 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
         return;
       }
 
+      localDb.saveShop(data.shop);
       setSuccessMessage('Shop successfully register ho gaya hai!');
       setTimeout(() => {
         onSuccess(data.shop, 'register');
@@ -165,7 +223,8 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
       }, 1000);
     } catch (err) {
       console.error('Registration error:', err);
-      setErrorMessage('Server connection error. Kripya check karein.');
+      setIsConnectionError(true);
+      setErrorMessage('Server connection error. Niche diye gaye button se Phone Offline Mode me continue karein ya Server URL badlein.');
     } finally {
       setLoading(false);
     }
@@ -175,6 +234,7 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
+    setIsConnectionError(false);
 
     if (loginId.length !== 10) {
       setErrorMessage('Kripya 10-digit Login ID (Mobile number) enter karein.');
@@ -186,9 +246,14 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
       return;
     }
 
+    if (isOfflineModeActive()) {
+      handleContinueLocalMode();
+      return;
+    }
+
     try {
       setLoading(true);
-      const res = await fetch('/api/shops/login', {
+      const res = await apiFetch('/api/shops/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -203,6 +268,7 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
         return;
       }
 
+      localDb.saveShop(data.shop);
       setSuccessMessage(`Welcome! ${data.shop.shopName} logged in.`);
       setTimeout(() => {
         onSuccess(data.shop, 'login');
@@ -210,7 +276,8 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
       }, 1000);
     } catch (err) {
       console.error('Login error:', err);
-      setErrorMessage('Server connection error.');
+      setIsConnectionError(true);
+      setErrorMessage('Server connection error. Niche diye gaye button se Phone Offline Mode me direct login karein.');
     } finally {
       setLoading(false);
     }
@@ -288,6 +355,37 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
           <div className="mx-4 sm:mx-6 mt-4 p-3 rounded-xl bg-rose-950/80 border border-rose-800/80 text-rose-300 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
             <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {/* Quick Offline Fallback Card if Connection Error happens */}
+        {isConnectionError && (
+          <div className="mx-4 sm:mx-6 mt-3 p-3.5 bg-gradient-to-r from-amber-950/70 to-slate-900 border border-amber-500/50 rounded-2xl space-y-2.5 text-xs animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-2 text-amber-300 font-bold">
+              <Smartphone className="w-4 h-4 text-amber-400" />
+              <span>Bina Server Ke Phone Me Chalana Chahte Hain?</span>
+            </div>
+            <p className="text-slate-300 text-[11px] leading-relaxed">
+              Agar cloud server connect nahi ho raha to aap bina kisi server ke apne phone me direct Bluetooth thermal printer se bills print kar sakte hain!
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleContinueLocalMode}
+                className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-bold rounded-xl shadow-md transition flex items-center gap-1.5"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>📱 Phone Offline Mode Me Continue Karein</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowServerModal(true)}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-xl border border-slate-600 transition flex items-center gap-1.5"
+              >
+                <Server className="w-3.5 h-3.5 text-sky-400" />
+                <span>⚙️ Server Settings</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -592,7 +690,32 @@ export const ShopAuthModal: React.FC<ShopAuthModalProps> = ({
             </div>
           </form>
         )}
+
+        {/* Bottom Server & Connection Quick Access */}
+        <div className="px-5 py-3 bg-slate-950/90 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+          <div className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${isOfflineModeActive() ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+            <span>{isOfflineModeActive() ? '📱 Phone Standalone Mode' : '🌐 Cloud Server Mode'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowServerModal(true)}
+            className="text-sky-400 hover:text-sky-300 font-medium hover:underline flex items-center gap-1"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>Server / Network Settings</span>
+          </button>
+        </div>
       </div>
+
+      <ServerSettingsModal
+        isOpen={showServerModal}
+        onClose={() => setShowServerModal(false)}
+        onSettingsChanged={() => {
+          setIsConnectionError(false);
+          setErrorMessage(null);
+        }}
+      />
     </div>
   );
 };

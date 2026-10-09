@@ -9,6 +9,7 @@ import {
   AlertCircle,
   ArrowRight
 } from 'lucide-react';
+import { apiFetch } from '../utils/api';
 
 interface AppVersionInfo {
   latestVersion: string;
@@ -27,7 +28,7 @@ export const InAppUpdateBanner: React.FC = () => {
   const [updateSuccess, setUpdateSuccess] = useState(false);
 
   useEffect(() => {
-    fetch('/api/app-version')
+    apiFetch('/api/app-version')
       .then((res) => (res.ok ? res.json() : null))
       .then((data: AppVersionInfo) => {
         if (data) {

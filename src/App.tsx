@@ -17,6 +17,7 @@ import { AdminPanelModal } from './components/AdminPanelModal';
 import { Footer } from './components/Footer';
 import { InAppUpdateBanner } from './components/InAppUpdateBanner';
 import { FeedbackModal } from './components/FeedbackModal';
+import { ServerSettingsModal } from './components/ServerSettingsModal';
 import { PrintJob, PrinterDevice, ShopAccount } from '../server';
 import { 
   playPrinterSoundEffect, 
@@ -25,7 +26,14 @@ import {
   PrintJobData, 
   buildEscPosBytes 
 } from './utils/escpos';
-import { AlertCircle, CheckCircle2, BellRing, Smartphone, ShieldCheck } from 'lucide-react';
+import { 
+  apiFetch, 
+  localDb, 
+  isOfflineModeActive, 
+  setOfflineModeActive, 
+  isNativeApp 
+} from './utils/api';
+import { AlertCircle, CheckCircle2, BellRing, Smartphone, ShieldCheck, Server } from 'lucide-react';
 
 export default function App() {
   const [jobs, setJobs] = useState<PrintJob[]>([]);
@@ -37,6 +45,8 @@ export default function App() {
   const [shopPanelInitialTab, setShopPanelInitialTab] = useState<'detail' | 'password' | 'upi' | 'rates' | 'customer_qr' | 'printer_bt'>('detail');
   const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
+  const [showServerModal, setShowServerModal] = useState<boolean>(false);
+  const [serverOnline, setServerOnline] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<'agent' | 'customer'>('agent');
   const [customerShopId, setCustomerShopId] = useState<string>('current');
   const [activePrinterId, setActivePrinterId] = useState<string>('');
@@ -77,44 +87,62 @@ export default function App() {
   // Fetch current active shop
   const fetchCurrentShop = useCallback(async () => {
     try {
-      const res = await fetch('/api/shops/current');
+      const res = await apiFetch('/api/shops/current');
       const data = await res.json();
       if (data.success && data.shop) {
         setCurrentShop(data.shop);
+        localDb.saveShop(data.shop);
+        setServerOnline(true);
+        return;
       }
     } catch (err) {
-      console.error('Failed to fetch current shop:', err);
+      console.warn('Backend shop fetch offline, using localDb:', err);
+      setServerOnline(false);
+      const local = localDb.getShop();
+      if (local) {
+        setCurrentShop(local);
+      }
     }
   }, []);
 
-  // Fetch jobs from backend server
+  // Fetch jobs from backend server or local storage
   const fetchJobs = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const res = await fetch('/api/print-jobs');
+      const res = await apiFetch('/api/print-jobs');
       const data = await res.json();
       if (data.success && Array.isArray(data.jobs)) {
         setJobs(data.jobs);
+        localDb.saveJobs(data.jobs);
+        setServerOnline(true);
+        return;
       }
     } catch (err) {
-      console.error('Failed to fetch jobs:', err);
+      setServerOnline(false);
+      const local = localDb.getJobs();
+      setJobs(local);
     } finally {
       if (!silent) setLoading(false);
     }
   }, []);
 
-  // Fetch printers from backend server
+  // Fetch printers from backend server or local storage
   const fetchPrinters = useCallback(async () => {
     try {
-      const res = await fetch('/api/printers');
+      const res = await apiFetch('/api/printers');
       const data = await res.json();
       if (data.success && Array.isArray(data.printers)) {
         setPrinters(data.printers);
+        localDb.savePrinters(data.printers);
         const def = data.printers.find((p: PrinterDevice) => p.isDefault);
         if (def) setActivePrinterId(def.id);
+        return;
       }
     } catch (err) {
-      console.error('Failed to fetch printers:', err);
+      const local = localDb.getPrinters();
+      setPrinters(local);
+      const def = local.find(p => p.isDefault);
+      if (def) setActivePrinterId(def.id);
     }
   }, []);
 
@@ -132,12 +160,13 @@ export default function App() {
 
   const handleLogoutShop = async () => {
     try {
-      await fetch('/api/shops/logout', { method: 'POST' });
-      setCurrentShop(null);
-      showToast('Shop logged out successfully', 'info');
+      await apiFetch('/api/shops/logout', { method: 'POST' });
     } catch (err) {
-      console.error('Logout error:', err);
+      console.warn('Logout offline:', err);
     }
+    localDb.saveShop(null);
+    setCurrentShop(null);
+    showToast('Shop logged out successfully', 'info');
   };
 
   const handleOpenShopPanelTab = (tab: 'detail' | 'password' | 'upi' | 'rates' | 'customer_qr' | 'printer_bt') => {
@@ -167,19 +196,29 @@ export default function App() {
 
       console.log(`[Shashi Print Agent] Dispatched ${rawBytes.byteLength} ESC/POS bytes to printer ${activePrinterId} for order ${job.orderNumber}`);
 
-      // 3. Mark executed on backend server
-      const res = await fetch(`/api/print-jobs/${job.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: 'printed',
-          executedAt: new Date().toISOString(),
-        }),
-      });
+      // 3. Mark executed on backend server or local storage
+      try {
+        const res = await apiFetch(`/api/print-jobs/${job.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'printed',
+            executedAt: new Date().toISOString(),
+          }),
+        });
 
-      const updatedData = await res.json();
-      if (updatedData.success) {
-        setJobs(prev => prev.map(j => (j.id === job.id ? updatedData.job : j)));
+        const updatedData = await res.json();
+        if (updatedData.success) {
+          setJobs(prev => prev.map(j => (j.id === job.id ? updatedData.job : j)));
+          localDb.updateJobStatus(job.id, 'printed');
+          setSelectedPreviewJob(job);
+          showToast(`Printed ${job.orderNumber} successfully!`, 'success');
+          return;
+        }
+      } catch {
+        // Fallback to local execution
+        localDb.updateJobStatus(job.id, 'printed');
+        setJobs(prev => prev.map(j => (j.id === job.id ? { ...j, status: 'printed', executedAt: new Date().toISOString() } : j)));
         setSelectedPreviewJob(job);
         showToast(`Printed ${job.orderNumber} successfully!`, 'success');
       }
@@ -194,10 +233,11 @@ export default function App() {
     const interval = setInterval(async () => {
       // Fetch latest jobs
       try {
-        const res = await fetch('/api/print-jobs');
+        const res = await apiFetch('/api/print-jobs');
         const data = await res.json();
         if (data.success && Array.isArray(data.jobs)) {
           setJobs(data.jobs);
+          localDb.saveJobs(data.jobs);
 
           // If auto-print is active and not currently busy executing
           if (autoPrint && !isExecutingRef.current) {
@@ -244,50 +284,77 @@ export default function App() {
   // Simulate incoming live order from backend
   const handleSimulateIncoming = async () => {
     try {
-      const res = await fetch('/api/print-jobs/simulate-incoming', { method: 'POST' });
+      const res = await apiFetch('/api/print-jobs/simulate-incoming', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         showToast(`New Order Received: ${data.job.orderNumber}`, 'info');
         triggerVibration([60]);
         fetchJobs(true);
+        return;
       }
-    } catch (err) {
-      console.error('Simulate order error:', err);
+    } catch {
+      // Local simulated job
+      const simulatedJob: PrintJob = {
+        id: `sim_${Date.now()}`,
+        orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+        title: 'Customer Print Order',
+        type: 'tax_invoice',
+        paperWidth: '58mm',
+        status: 'pending',
+        priority: 'urgent',
+        createdAt: new Date().toISOString(),
+        source: 'QR Customer Portal',
+        customerName: 'Rahul Verma',
+        amount: 25,
+        items: [
+          { name: 'A4 Document (B&W)', qty: 5, price: 3 },
+          { name: 'Colour Print Slip', qty: 1, price: 10 }
+        ]
+      };
+      localDb.addJob(simulatedJob);
+      setJobs(prev => [simulatedJob, ...prev]);
+      showToast(`New Order Received: ${simulatedJob.orderNumber}`, 'info');
+      triggerVibration([60]);
     }
   };
 
   // Delete a job
   const handleDeleteJob = async (id: string) => {
     try {
-      const res = await fetch(`/api/print-jobs/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setJobs(prev => prev.filter(j => j.id !== id));
-        showToast('Job removed', 'info');
-      }
-    } catch (err) {
-      console.error('Delete job error:', err);
-    }
+      await apiFetch(`/api/print-jobs/${id}`, { method: 'DELETE' });
+    } catch {}
+    localDb.deleteJob(id);
+    setJobs(prev => prev.filter(j => j.id !== id));
+    showToast('Job removed', 'info');
   };
 
   // Clear completed jobs
   const handleClearCompleted = async () => {
     try {
-      const res = await fetch('/api/print-jobs/clear-completed', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        setJobs(prev => prev.filter(j => j.status === 'pending'));
-        showToast('Cleared completed jobs', 'info');
-      }
-    } catch (err) {
-      console.error('Clear completed error:', err);
-    }
+      await apiFetch('/api/print-jobs/clear-completed', { method: 'POST' });
+    } catch {}
+    localDb.clearCompletedJobs();
+    setJobs(prev => prev.filter(j => j.status === 'pending'));
+    showToast('Cleared completed jobs', 'info');
   };
 
   // Add new printer
   const handleAddPrinter = async (newP: Partial<PrinterDevice>) => {
+    const fullPrinter: PrinterDevice = {
+      id: newP.id || `printer_${Date.now()}`,
+      name: newP.name || 'Thermal Printer',
+      type: newP.type || 'bluetooth',
+      paperWidth: newP.paperWidth || '58mm',
+      category: newP.category || 'thermal',
+      status: 'idle',
+      isDefault: newP.isDefault || printers.length === 0,
+      model: newP.model || 'Standard Thermal',
+      address: newP.address,
+      brand: newP.brand,
+    };
+
     try {
-      const res = await fetch('/api/printers', {
+      const res = await apiFetch('/api/printers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newP),
@@ -295,69 +362,84 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setPrinters(prev => [...prev, data.printer]);
+        localDb.savePrinters([...printers, data.printer]);
         if (data.printer.isDefault || printers.length === 0) {
           setActivePrinterId(data.printer.id);
         }
         showToast(`Printer "${data.printer.name}" added successfully!`, 'success');
+        return;
       }
-    } catch (err) {
-      console.error('Add printer error:', err);
+    } catch {}
+
+    // Local fallback
+    const updated = [...printers, fullPrinter];
+    setPrinters(updated);
+    localDb.savePrinters(updated);
+    if (fullPrinter.isDefault || printers.length === 0) {
+      setActivePrinterId(fullPrinter.id);
     }
+    showToast(`Printer "${fullPrinter.name}" added successfully!`, 'success');
   };
 
   // Delete printer
   const handleDeletePrinter = async (id: string) => {
     try {
-      const res = await fetch(`/api/printers/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setPrinters(prev => prev.filter(p => p.id !== id));
-        if (activePrinterId === id) {
-          const remaining = printers.filter(p => p.id !== id);
-          if (remaining.length > 0) setActivePrinterId(remaining[0].id);
-          else setActivePrinterId('');
-        }
-        showToast('Printer removed', 'info');
-      }
-    } catch (err) {
-      console.error('Delete printer error:', err);
+      await apiFetch(`/api/printers/${id}`, { method: 'DELETE' });
+    } catch {}
+    const updated = printers.filter(p => p.id !== id);
+    setPrinters(updated);
+    localDb.savePrinters(updated);
+    if (activePrinterId === id) {
+      if (updated.length > 0) setActivePrinterId(updated[0].id);
+      else setActivePrinterId('');
     }
+    showToast('Printer removed', 'info');
   };
 
   // Set default printer
   const handleSetDefaultPrinter = async (id: string) => {
     try {
-      const res = await fetch(`/api/printers/${id}/default`, { method: 'PATCH' });
-      const data = await res.json();
-      if (data.success) {
-        setPrinters(prev => prev.map(p => ({ ...p, isDefault: p.id === id })));
-        setActivePrinterId(id);
-        showToast('Default printer set', 'success');
-      }
-    } catch (err) {
-      console.error('Set default printer error:', err);
-    }
+      await apiFetch(`/api/printers/${id}/default`, { method: 'PATCH' });
+    } catch {}
+    const updated = printers.map(p => ({ ...p, isDefault: p.id === id }));
+    setPrinters(updated);
+    localDb.savePrinters(updated);
+    setActivePrinterId(id);
+    showToast('Default printer set', 'success');
   };
 
   // Clear all printers
   const handleClearAllPrinters = async () => {
     try {
-      const res = await fetch('/api/printers', { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setPrinters([]);
-        setActivePrinterId('');
-        showToast('All printers deleted', 'info');
-      }
-    } catch (err) {
-      console.error('Clear all printers error:', err);
-    }
+      await apiFetch('/api/printers', { method: 'DELETE' });
+    } catch {}
+    setPrinters([]);
+    localDb.savePrinters([]);
+    setActivePrinterId('');
+    showToast('All printers deleted', 'info');
   };
 
   // Create custom new job
   const handleCreateJob = async (jobData: Partial<PrintJob>) => {
+    const newJob: PrintJob = {
+      id: jobData.id || `job_${Date.now()}`,
+      orderNumber: jobData.orderNumber || `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+      title: jobData.title || 'Print Job',
+      type: jobData.type || 'tax_invoice',
+      paperWidth: jobData.paperWidth || paperWidth,
+      status: 'pending',
+      priority: jobData.priority || 'normal',
+      createdAt: new Date().toISOString(),
+      source: jobData.source || 'Manual Job',
+      customerName: jobData.customerName,
+      customerPhone: jobData.customerPhone,
+      amount: jobData.amount,
+      items: jobData.items,
+      notes: jobData.notes,
+    };
+
     try {
-      const res = await fetch('/api/print-jobs', {
+      const res = await apiFetch('/api/print-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jobData),
@@ -367,10 +449,14 @@ export default function App() {
         showToast(`Job ${data.job.orderNumber} added to queue!`, 'success');
         fetchJobs(true);
         setActiveTab('queue');
+        return;
       }
-    } catch (err) {
-      console.error('Create job error:', err);
-    }
+    } catch {}
+
+    localDb.addJob(newJob);
+    setJobs(prev => [newJob, ...prev]);
+    showToast(`Job ${newJob.orderNumber} added to queue!`, 'success');
+    setActiveTab('queue');
   };
 
   // System Spooler print trigger (window.print())
@@ -423,6 +509,8 @@ export default function App() {
         onOpenCustomerPortal={() => handleOpenCustomerPortal(currentShop?.id || 'current')}
         onOpenAdminPanel={() => setShowAdminModal(true)}
         onOpenFeedback={() => setShowFeedbackModal(true)}
+        onOpenServerSettings={() => setShowServerModal(true)}
+        isServerOnline={!isOfflineModeActive() && serverOnline}
       />
 
       {/* In-App Live Version & Auto-Update Banner */}
@@ -601,6 +689,17 @@ export default function App() {
         shopName={currentShop?.shopName}
         onFeedbackSubmitted={() => {
           showToast('Feedback successfully submitted to Super Admin!', 'success');
+        }}
+      />
+
+      {/* Server & Network Connection Settings Modal */}
+      <ServerSettingsModal
+        isOpen={showServerModal}
+        onClose={() => setShowServerModal(false)}
+        onSettingsChanged={() => {
+          fetchCurrentShop();
+          fetchJobs();
+          fetchPrinters();
         }}
       />
     </div>

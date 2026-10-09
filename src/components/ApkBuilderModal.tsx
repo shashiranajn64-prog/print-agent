@@ -19,6 +19,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { apiFetch } from '../utils/api';
 
 interface ApkBuilderModalProps {
   isOpen: boolean;
@@ -585,10 +586,13 @@ npx cap open android
                   </div>
                   <button
                     onClick={() => {
-                      fetch('/api/app-version')
+                      apiFetch('/api/app-version')
                         .then(r => r.json())
                         .then(d => {
                           alert(`App Version: v${d.latestVersion}\nRelease Date: ${d.releaseDate}\nFeatures: ${d.changelog.join(', ')}`);
+                        })
+                        .catch(() => {
+                          alert('App Version: v1.0.1 (Offline Local Build)');
                         });
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs transition"

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ShopAccount } from '../../server';
 import { playPrinterSoundEffect, triggerVibration } from '../utils/escpos';
+import { apiFetch } from '../utils/api';
 
 interface CustomerPortalProps {
   shopId: string;
@@ -82,7 +83,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ shopId, onBackTo
     const fetchShop = async () => {
       try {
         setLoadingShop(true);
-        const res = await fetch(`/api/shops/by-id/${shopId || 'current'}`);
+        const res = await apiFetch(`/api/shops/by-id/${shopId || 'current'}`);
         const data = await res.json();
         if (data.success && data.shop) {
           setShop(data.shop);
@@ -142,7 +143,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ shopId, onBackTo
   const completePaymentVerification = async (paymentId: string, orderId?: string, signature?: string) => {
     try {
       setIsVerifyingPayment(true);
-      const res = await fetch('/api/customer/razorpay-verify-and-print', {
+      const res = await apiFetch('/api/customer/razorpay-verify-and-print', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,7 +191,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ shopId, onBackTo
 
     try {
       // 1. Create order on backend
-      const orderRes = await fetch('/api/payment/razorpay-order', {
+      const orderRes = await apiFetch('/api/payment/razorpay-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
