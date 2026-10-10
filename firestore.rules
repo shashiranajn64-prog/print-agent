@@ -1,0 +1,109 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny all unmatched paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Diagnostic connection verification endpoint required by integration guidelines
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Helper Primitives
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation: Shop Account
+    function isValidShop(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.shopName is string && data.shopName.size() > 0 && data.shopName.size() <= 100
+        && data.ownerName is string && data.ownerName.size() > 0 && data.ownerName.size() <= 100
+        && data.mobileNumber is string && data.mobileNumber.size() >= 8 && data.mobileNumber.size() <= 20
+        && (!('address' in data) || (data.address is string && data.address.size() <= 200))
+        && (!('upiId' in data) || (data.upiId is string && data.upiId.size() <= 100))
+        && (!('upiQrCustomUrl' in data) || (data.upiQrCustomUrl is string && data.upiQrCustomUrl.size() <= 500000))
+        && (!('totalPrinted' in data) || (data.totalPrinted is number && data.totalPrinted >= 0));
+    }
+
+    // Validation: Print Job
+    function isValidPrintJob(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.shopId is string && data.shopId.size() <= 128
+        && data.orderNumber is string && data.orderNumber.size() <= 32 && data.orderNumber.matches('^[a-zA-Z0-9\\-]+$')
+        && data.status in ['pending', 'processing', 'printed', 'failed', 'cancelled']
+        && data.amount is number && data.amount >= 0 && data.amount <= 100000
+        && (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 100))
+        && (!('customerPhone' in data) || (data.customerPhone is string && data.customerPhone.size() <= 20))
+        && (!('fileName' in data) || (data.fileName is string && data.fileName.size() <= 255))
+        && (!('colorMode' in data) || (data.colorMode in ['bw', 'colour']))
+        && (!('copies' in data) || (data.copies is number && data.copies >= 1 && data.copies <= 500))
+        && (!('pagesCount' in data) || (data.pagesCount is number && data.pagesCount >= 1 && data.pagesCount <= 500))
+        && (!('paymentStatus' in data) || (data.paymentStatus in ['pending', 'paid', 'cash_on_counter']))
+        && (!('paymentMethod' in data) || (data.paymentMethod in ['upi_qr', 'razorpay', 'cash']))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    // Validation: Feedback
+    function isValidFeedback(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.message is string && data.message.size() > 0 && data.message.size() <= 1000
+        && (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 100))
+        && (!('customerContact' in data) || (data.customerContact is string && data.customerContact.size() <= 100));
+    }
+
+    // 1. Shops Collection
+    match /shops/{shopId} {
+      allow get: if isValidId(shopId);
+      allow list: if true;
+      allow create: if isValidId(shopId) && isValidShop(incoming());
+      allow update: if isValidId(shopId) && isValidShop(incoming());
+      allow delete: if false; // Safeguard shop counter profiles
+    }
+
+    // 2. Print Jobs Queue Collection (Customer & Kiosk)
+    match /print_jobs/{jobId} {
+      allow get: if isValidId(jobId);
+      allow list: if true;
+      allow create: if isValidId(jobId) 
+        && isValidPrintJob(incoming()) 
+        && incoming().status == 'pending';
+      
+      // Update: Action-based updates (e.g. status changes, mark printed, payment verification)
+      allow update: if isValidId(jobId) 
+        && isValidPrintJob(incoming())
+        // Terminal state lock: Cannot revert back to pending if already printed or cancelled
+        && !(existing().status in ['printed', 'cancelled'] && incoming().status == 'pending')
+        // Immutable orderNumber & shopId
+        && incoming().orderNumber == existing().orderNumber
+        && incoming().shopId == existing().shopId
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'executedAt', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paymentStatus', 'utrNumber', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'printerId', 'executedAt', 'updatedAt'])
+        );
+
+      allow delete: if isValidId(jobId);
+    }
+
+    // 3. Feedbacks Collection
+    match /feedbacks/{feedbackId} {
+      allow get, list: if true;
+      allow create: if isValidId(feedbackId) && isValidFeedback(incoming());
+      allow update, delete: if false;
+    }
+  }
+}

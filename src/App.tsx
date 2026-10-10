@@ -33,6 +33,8 @@ import {
   setOfflineModeActive, 
   isNativeApp 
 } from './utils/api';
+import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { AlertCircle, CheckCircle2, BellRing, Smartphone, ShieldCheck, Server } from 'lucide-react';
 
 export default function App() {
@@ -188,7 +190,7 @@ export default function App() {
       }
       triggerVibration([100, 50, 100]);
 
-      // 2. Build ESC/POS command packet
+      // 2. Build ESC/POS command packet (for thermal/bluetooth)
       const rawBytes = buildEscPosBytes({
         ...job,
         paperWidth: job.paperWidth || paperWidth,
@@ -196,7 +198,72 @@ export default function App() {
 
       console.log(`[Shashi Print Agent] Dispatched ${rawBytes.byteLength} ESC/POS bytes to printer ${activePrinterId} for order ${job.orderNumber}`);
 
-      // 3. Mark executed on backend server or local storage
+      // 3. A4 Paper Local Auto-Print trigger (Direct system/local printer window)
+      try {
+        const printFrame = document.getElementById('a4-print-iframe') as HTMLIFrameElement;
+        if (printFrame && printFrame.contentWindow) {
+          const pDoc = printFrame.contentWindow.document;
+          pDoc.open();
+          pDoc.write(`
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <title>A4 Print - ${job.orderNumber}</title>
+                <style>
+                  @page { size: A4 portrait; margin: 10mm; }
+                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; color: #111; }
+                  .header { border-bottom: 2px solid #222; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: flex-start; }
+                  .shop { font-size: 20px; font-weight: bold; }
+                  .info { font-size: 12px; color: #555; }
+                  .token { font-size: 15px; font-weight: 900; background: #e0f2fe; padding: 4px 10px; border-radius: 6px; }
+                  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; margin-bottom: 15px; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid #e2e8f0; }
+                  .doc-box { text-align: center; margin: 20px 0; }
+                  .doc-box img { max-width: 100%; max-height: 850px; object-fit: contain; }
+                </style>
+              </head>
+              <body>
+                <div class="header">
+                  <div>
+                    <div class="shop">${currentShop?.shopName || 'Shashi Print Center'}</div>
+                    <div class="info">${currentShop?.address || 'Counter 1'} • Mo: ${currentShop?.mobileNumber || ''}</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div class="token">A4 PRINT #${job.orderNumber}</div>
+                    <div style="font-size: 11px; color: #666; margin-top: 4px;">Time: ${new Date().toLocaleTimeString()}</div>
+                  </div>
+                </div>
+                <div class="meta">
+                  <div><strong>Customer:</strong> ${job.customerName || 'Walk-in'}</div>
+                  <div><strong>Total Amount:</strong> ₹${job.amount || 0}</div>
+                  <div><strong>Format:</strong> A4 Standard Document</div>
+                  <div><strong>Source:</strong> ${job.source}</div>
+                </div>
+                ${job.notes ? `<div style="font-size: 12px; color: #555; margin-bottom: 12px;"><strong>Details:</strong> ${job.notes}</div>` : ''}
+                <script>
+                  window.onload = function() {
+                    window.print();
+                  };
+                </script>
+              </body>
+            </html>
+          `);
+          pDoc.close();
+        }
+      } catch (pErr) {
+        console.warn('Local A4 printer iframe notice:', pErr);
+      }
+
+      // 4. Update status in Firebase Firestore
+      try {
+        await updateDoc(doc(db, 'print_jobs', job.id), {
+          status: 'printed',
+          executedAt: new Date().toISOString()
+        });
+      } catch (fireErr) {
+        console.warn('Firestore updateDoc notice:', fireErr);
+      }
+
+      // 5. Mark executed on backend server or local storage
       try {
         const res = await apiFetch(`/api/print-jobs/${job.id}`, {
           method: 'PATCH',
@@ -226,12 +293,66 @@ export default function App() {
       console.error('Execution error:', err);
       showToast(`Error executing ${job.orderNumber}`, 'error');
     }
-  }, [activePrinterId, paperWidth, soundEnabled]);
+  }, [activePrinterId, paperWidth, soundEnabled, currentShop]);
 
-  // Real-time polling & Auto-execution loop
+  // Real-time Firebase Firestore Subscription for print jobs (Instant Auto-Print)
+  useEffect(() => {
+    try {
+      const unsubscribe = onSnapshot(collection(db, 'print_jobs'), (snapshot) => {
+        const fireJobs: PrintJob[] = [];
+        snapshot.forEach((docSnap) => {
+          const d = docSnap.data();
+          fireJobs.push({
+            id: d.id || docSnap.id,
+            orderNumber: d.orderNumber || 'ORD-000',
+            title: d.title || 'Customer Print Job',
+            type: 'tax_invoice',
+            paperWidth: (d.paperWidth as '58mm' | '80mm') || '80mm',
+            status: d.status || 'pending',
+            priority: 'urgent',
+            createdAt: d.createdAt || new Date().toISOString(),
+            executedAt: d.executedAt,
+            source: d.source || 'Customer Online Kiosk',
+            customerName: d.customerName,
+            customerPhone: d.customerPhone,
+            amount: d.amount,
+            notes: d.notes,
+            printerId: d.printerId
+          });
+        });
+
+        if (fireJobs.length > 0) {
+          fireJobs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setJobs(fireJobs);
+          localDb.saveJobs(fireJobs);
+
+          // Auto-execute pending jobs in real time if autoPrint is on
+          if (autoPrint && !isExecutingRef.current) {
+            const pendingJobs = fireJobs.filter(j => j.status === 'pending');
+            if (pendingJobs.length > 0) {
+              const nextJob = pendingJobs[0];
+              isExecutingRef.current = true;
+              handleExecuteJob(nextJob).finally(() => {
+                setTimeout(() => {
+                  isExecutingRef.current = false;
+                }, 1200);
+              });
+            }
+          }
+        }
+      }, (err) => {
+        console.warn('[Firebase] Firestore onSnapshot warning:', err);
+      });
+
+      return () => unsubscribe();
+    } catch (err) {
+      console.warn('[Firebase] Snapshot error, falling back to polling:', err);
+    }
+  }, [autoPrint, handleExecuteJob]);
+
+  // Real-time polling fallback loop
   useEffect(() => {
     const interval = setInterval(async () => {
-      // Fetch latest jobs
       try {
         const res = await apiFetch('/api/print-jobs');
         const data = await res.json();
@@ -239,7 +360,6 @@ export default function App() {
           setJobs(data.jobs);
           localDb.saveJobs(data.jobs);
 
-          // If auto-print is active and not currently busy executing
           if (autoPrint && !isExecutingRef.current) {
             const pendingJobs = data.jobs.filter((j: PrintJob) => j.status === 'pending');
             if (pendingJobs.length > 0) {
@@ -255,7 +375,7 @@ export default function App() {
       } catch {
         // silent background poll error
       }
-    }, 3200);
+    }, 4500);
 
     return () => clearInterval(interval);
   }, [autoPrint, handleExecuteJob]);
@@ -702,6 +822,9 @@ export default function App() {
           fetchPrinters();
         }}
       />
+
+      {/* Hidden A4 Print Spooler iframe for Direct Local Printer Window */}
+      <iframe id="a4-print-iframe" className="hidden w-0 h-0 border-0 pointer-events-none" title="A4 Print Spooler" />
     </div>
   );
 }

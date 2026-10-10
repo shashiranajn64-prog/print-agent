@@ -28,7 +28,7 @@ export interface PrintJob {
   orderNumber: string;
   title: string;
   type: 'tax_invoice' | 'kot' | 'token_slip' | 'barcode_label' | 'upi_receipt' | 'raw_escpos';
-  paperWidth: '58mm' | '80mm';
+  paperWidth: '58mm' | '80mm' | 'A4';
   status: 'pending' | 'processing' | 'printed' | 'failed';
   priority: 'urgent' | 'high' | 'normal';
   createdAt: string;
@@ -77,6 +77,7 @@ export interface ShopAccount {
   totalPrinted: number;
   upiId?: string;            // Shopkeeper UPI ID e.g. shop@upi
   upiQrCustomUrl?: string;   // Optional custom QR image URL or data
+  razorpayKeyId?: string;    // Optional merchant Razorpay Key ID
   rates: PrintRates;
 }
 
@@ -770,6 +771,7 @@ app.get('/api/shops/by-id/:id', (req: Request, res: Response) => {
       mobileNumber: shop.mobileNumber,
       upiId: shop.upiId || `${shop.mobileNumber}@upi`,
       upiQrCustomUrl: shop.upiQrCustomUrl,
+      razorpayKeyId: shop.razorpayKeyId,
       rates: shop.rates || { blackAndWhiteRate: 3, colourRate: 10, pdfPageRate: 5 }
     }
   });
@@ -782,7 +784,12 @@ app.post('/api/payment/razorpay-order', (req: Request, res: Response) => {
   const amountInPaise = Math.round(numAmount * 100);
   const receipt = `rcpt_${Date.now().toString(36)}`;
   const orderId = `order_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
-  const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_test_ShashiPrintAgent';
+  
+  let targetShop = registeredShops.find(s => s.id === shopId);
+  if (!targetShop && currentActiveShop) {
+    targetShop = currentActiveShop;
+  }
+  const keyId = targetShop?.razorpayKeyId || process.env.RAZORPAY_KEY_ID || 'rzp_test_ShashiPrintAgent';
 
   res.json({
     success: true,
@@ -791,7 +798,7 @@ app.post('/api/payment/razorpay-order', (req: Request, res: Response) => {
     currency,
     receipt,
     keyId,
-    shopName: currentActiveShop?.shopName || 'Shashi Print Agent'
+    shopName: targetShop?.shopName || currentActiveShop?.shopName || 'Shashi Print Agent'
   });
 });
 

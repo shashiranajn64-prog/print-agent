@@ -632,7 +632,9 @@ export const QueueManager: React.FC<QueueManagerProps> = ({
                     </div>
                     <div>
                       <span className="text-slate-500 block text-[10px]">PAPER FORMAT</span>
-                      <span className="font-mono text-sky-400">{job.paperWidth} Thermal</span>
+                      <span className="font-mono text-emerald-400 font-bold">
+                        {job.paperWidth === 'A4' ? 'A4 Document' : `${job.paperWidth} Thermal`}
+                      </span>
                     </div>
                   </div>
 

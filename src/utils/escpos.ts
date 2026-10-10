@@ -9,7 +9,7 @@ export interface PrintJobData {
   orderNumber: string;
   title: string;
   type: string;
-  paperWidth: '58mm' | '80mm';
+  paperWidth: '58mm' | '80mm' | 'A4';
   customerName?: string;
   customerPhone?: string;
   amount?: number;

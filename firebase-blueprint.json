@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "ShopAccount": {
+      "title": "ShopAccount",
+      "description": "Represents a print shop profile and counter settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "shopName": { "type": "string", "maxLength": 100 },
+        "mobileNumber": { "type": "string", "maxLength": 20 },
+        "ownerName": { "type": "string", "maxLength": 100 },
+        "address": { "type": "string", "maxLength": 200 },
+        "upiId": { "type": "string", "maxLength": 100 },
+        "upiQrCustomUrl": { "type": "string", "maxLength": 500000 },
+        "blackAndWhiteRate": { "type": "number" },
+        "colourRate": { "type": "number" },
+        "pdfPageRate": { "type": "number" },
+        "totalPrinted": { "type": "number" },
+        "autoPrintEnabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "shopName", "mobileNumber", "ownerName"]
+    },
+    "PrintJob": {
+      "title": "PrintJob",
+      "description": "Print job submitted by customer or shopkeeper",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "shopId": { "type": "string", "maxLength": 128 },
+        "orderNumber": { "type": "string", "maxLength": 32, "pattern": "^[a-zA-Z0-9\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "customerPhone": { "type": "string", "maxLength": 20 },
+        "fileName": { "type": "string", "maxLength": 255 },
+        "fileData": { "type": "string", "maxLength": 500000 },
+        "fileType": { "type": "string", "maxLength": 64 },
+        "colorMode": { "type": "string", "enum": ["bw", "colour"] },
+        "copies": { "type": "number" },
+        "pagesCount": { "type": "number" },
+        "orientation": { "type": "string", "enum": ["portrait", "landscape"] },
+        "paperWidth": { "type": "string", "enum": ["58mm", "80mm", "A4"] },
+        "status": { "type": "string", "enum": ["pending", "processing", "printed", "failed", "cancelled"] },
+        "paymentStatus": { "type": "string", "enum": ["pending", "paid", "cash_on_counter"] },
+        "paymentMethod": { "type": "string", "enum": ["upi_qr", "razorpay", "cash"] },
+        "utrNumber": { "type": "string", "maxLength": 100 },
+        "amount": { "type": "number" },
+        "source": { "type": "string", "maxLength": 100 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "executedAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "shopId", "orderNumber", "status", "amount"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "User review or support inquiry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "shopId": { "type": "string", "maxLength": 128 },
+        "rating": { "type": "number" },
+        "message": { "type": "string", "maxLength": 1000 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "customerContact": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "rating", "message"]
+    }
+  },
+  "firestore": {
+    "/shops/{shopId}": {
+      "schema": "ShopAccount",
+      "description": "Registered print shop profiles"
+    },
+    "/print_jobs/{jobId}": {
+      "schema": "PrintJob",
+      "description": "Queue of print jobs submitted by customers or kiosk"
+    },
+    "/feedbacks/{feedbackId}": {
+      "schema": "Feedback",
+      "description": "User feedback submissions"
+    }
+  }
+}

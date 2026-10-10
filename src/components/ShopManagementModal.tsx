@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Store, 
   KeyRound, 
@@ -19,11 +19,17 @@ import {
   IndianRupee,
   Sparkles,
   Download,
-  Bluetooth
+  Bluetooth,
+  Upload,
+  Image as ImageIcon,
+  Trash2,
+  ShieldCheck
 } from 'lucide-react';
 import { ShopAccount, PrinterDevice } from '../../server';
 import { PrinterSettings } from './PrinterSettings';
 import { apiFetch, getPublicWebUrl, localDb } from '../utils/api';
+import { doc, setDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 
 interface ShopManagementModalProps {
   isOpen: boolean;
@@ -80,6 +86,26 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
   // 3. UPI ID & QR State
   const [upiId, setUpiId] = useState(shop.upiId || `${shop.mobileNumber}@upi`);
   const [upiQrCustomUrl, setUpiQrCustomUrl] = useState(shop.upiQrCustomUrl || '');
+  const [razorpayKeyId, setRazorpayKeyId] = useState(shop.razorpayKeyId || '');
+  const qrFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleQrGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        notify('QR image size 2MB se kam honi chahiye.', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setUpiQrCustomUrl(reader.result);
+          notify('Gallery se QR code photo safalta se load ho gayi!', 'success');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // 4. Customer Panel Rates State
   const [bwRate, setBwRate] = useState<number>(shop.rates?.blackAndWhiteRate ?? 3);
@@ -193,30 +219,49 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
     const updatedShop: ShopAccount = {
       ...shop,
       upiId: upiId.trim(),
-      upiQrCustomUrl: upiQrCustomUrl.trim()
+      upiQrCustomUrl: upiQrCustomUrl.trim(),
+      razorpayKeyId: razorpayKeyId.trim() || undefined
     };
 
     try {
       setLoading(true);
+      // Sync to Firestore
+      try {
+        await setDoc(doc(db, 'shops', shop.id), {
+          id: shop.id,
+          shopName: shop.shopName,
+          ownerName: shop.ownerName,
+          mobileNumber: shop.mobileNumber,
+          address: shop.address || '',
+          upiId: upiId.trim(),
+          upiQrCustomUrl: upiQrCustomUrl.trim(),
+          razorpayKeyId: razorpayKeyId.trim() || '',
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (fErr) {
+        console.warn('Firestore shop upi sync warning:', fErr);
+      }
+
       const res = await apiFetch('/api/shops/upi', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           upiId: upiId.trim(),
           upiQrCustomUrl: upiQrCustomUrl.trim(),
+          razorpayKeyId: razorpayKeyId.trim(),
         }),
       });
       const data = await res.json();
       if (data.success && data.shop) {
         localDb.saveShop(data.shop);
         onShopUpdated(data.shop);
-        notify('UPI ID aur QR update ho gaya hai!', 'success');
+        notify('UPI ID aur QR Code safalta se update ho gaya!', 'success');
         return;
       }
     } catch {
       localDb.saveShop(updatedShop);
       onShopUpdated(updatedShop);
-      notify('UPI ID aur QR locally update ho gaya hai (Phone Mode)!', 'success');
+      notify('UPI ID aur QR locally update ho gaya hai!', 'success');
     } finally {
       setLoading(false);
     }
@@ -558,7 +603,7 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div>
                       <label className="text-slate-300 font-semibold block mb-1">
                         Shopkeeper UPI ID (GPay / PhonePe / Paytm / BHIM)
@@ -572,36 +617,112 @@ export const ShopManagementModal: React.FC<ShopManagementModalProps> = ({
                         className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
                       />
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Costumer isi UPI ID par payment karega jab wo QR scan karke print karega.
+                        Customer isi UPI ID aur QR par direct payment karega counter par.
                       </p>
                     </div>
 
-                    <div>
-                      <label className="text-slate-300 font-semibold block mb-1">
-                        Optional: Custom Scanner QR Image Link
-                      </label>
+                    {/* Razorpay Merchant Key ID Section */}
+                    <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-2xl space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-200 font-bold text-xs flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-sky-400" />
+                          <span>Razorpay Merchant Key ID (Auto-Verification)</span>
+                        </label>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                          Auto-Verify Online Gateway
+                        </span>
+                      </div>
                       <input
-                        type="url"
-                        value={upiQrCustomUrl}
-                        onChange={e => setUpiQrCustomUrl(e.target.value)}
-                        placeholder="https://... image URL (optional)"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-[11px] font-mono focus:outline-none focus:border-emerald-500"
+                        type="text"
+                        value={razorpayKeyId}
+                        onChange={e => setRazorpayKeyId(e.target.value)}
+                        placeholder="rzp_live_xxxx ya rzp_test_xxxx (Optional)"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-sky-500"
                       />
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        Customer ke Razorpay payments instant auto-verify hokar aapke merchant account me aayenge. Khali chhodne par standard automated gateway mode use hoga.
+                      </p>
+                    </div>
+
+                    {/* Gallery QR Upload Section */}
+                    <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-2xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-200 font-bold text-xs flex items-center gap-1.5">
+                          <ImageIcon className="w-4 h-4 text-emerald-400" />
+                          <span>Shop Scanner Standee QR (Gallery Upload)</span>
+                        </label>
+                        {upiQrCustomUrl && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            Gallery QR Active
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-[11px] text-slate-400">
+                        Apne counter ke PhonePe, Google Pay, Paytm ya BharatPe standee QR code ki photo gallery se upload karein.
+                      </p>
+
+                      <input
+                        type="file"
+                        ref={qrFileInputRef}
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleQrGalleryUpload}
+                      />
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => qrFileInputRef.current?.click()}
+                          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md transition active:scale-95"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>Gallery se QR Photo Chunein</span>
+                        </button>
+
+                        {upiQrCustomUrl && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUpiQrCustomUrl('');
+                              notify('Gallery QR hataya gaya. Ab dynamic QR code dikhega.', 'success');
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-300 border border-slate-700 hover:border-rose-700/50 text-xs font-medium transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove QR</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   {/* Live UPI QR Preview */}
                   <div className="flex flex-col items-center bg-slate-900 p-4 rounded-2xl border border-slate-800 text-center">
-                    <span className="text-[11px] font-bold text-slate-300 mb-2">Live Shop UPI QR Code</span>
-                    <div className="p-2 bg-white rounded-xl shadow-lg inline-block">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="text-[11px] font-bold text-slate-300">
+                        {upiQrCustomUrl ? 'Uploaded Gallery Standee QR' : 'Auto-Generated UPI QR'}
+                      </span>
+                      {upiQrCustomUrl && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      )}
+                    </div>
+
+                    <div className="p-2 bg-white rounded-xl shadow-lg inline-block max-w-[160px] max-h-[160px] overflow-hidden">
                       <img
-                        src={upiQrSvgUrl}
-                        alt="Shop UPI QR"
+                        src={upiQrCustomUrl || upiQrSvgUrl}
+                        alt="Shop QR"
                         className="w-32 h-32 object-contain"
                       />
                     </div>
-                    <span className="text-[10px] font-mono text-emerald-400 mt-2 font-bold">{upiId}</span>
-                    <span className="text-[9px] text-slate-400">Scan to pay directly into your shop account</span>
+                    <span className="text-[10px] font-mono text-emerald-400 mt-2 font-bold truncate max-w-[200px]">
+                      {upiId}
+                    </span>
+                    <span className="text-[9px] text-slate-400">
+                      {upiQrCustomUrl 
+                        ? 'Customer ko counter par ye standee QR scan karne ko milega' 
+                        : 'Dynamic UPI QR: Scan karke direct payment ho jayega'}
+                    </span>
                   </div>
                 </div>
               </div>
